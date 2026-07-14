@@ -1,0 +1,15 @@
+# CTF Solver
+
+# Python
+__pycache__/
+*.pyc
+
+# Agent workspace (临时工作目录)
+workspace/
+
+# Node
+node_modules/
+.next/
+
+# 环境
+.env

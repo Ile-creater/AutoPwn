@@ -1,0 +1,7 @@
+{
+  "id": "001_hello_flag",
+  "title": "Base64 编码的 Flag",
+  "type": "crypto",
+  "difficulty": 1,
+  "flag_format": "flag{...}"
+}
