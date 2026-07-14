@@ -1,78 +1,46 @@
-"""
-AgentRunner — launches a subprocess agent, captures stdout, relays via WebSocket.
-"""
-
-import asyncio
-import os
-import sys
+import asyncio, os, sys
 from pathlib import Path
-
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-class AgentRunner:
-    def __init__(self, challenge: dict, ws_manager, agent_name: str):
-        self.challenge = challenge
-        self.ws = ws_manager
-        self.agent_name = agent_name
-        self.workspace = BASE_DIR / "workspace" / challenge["id"]
-        self.workspace.mkdir(parents=True, exist_ok=True)
+async def run_agent(chal, log, agent_type="crypto"):
+    """把 challenge 丢给子进程跑，把 stdout 一行行推出去。返回 (solved, flag)。"""
+    workspace = BASE_DIR / "workspace" / chal["id"]
+    workspace.mkdir(parents=True, exist_ok=True)
 
-    async def run(self) -> dict:
-        """Run the matching agent for this challenge type."""
-        agent_type = self.challenge.get("type", "crypto")
+    # 现在只有 crypto agent，后面再加别的
+    script = BASE_DIR / "agents" / f"{agent_type}_agent.py"
+    if not script.exists():
+        await log("runner", f"没找到 agent 脚本: {script}")
+        return False, None
 
-        # Map challenge type to agent script
-        agent_scripts = {
-            "crypto": BASE_DIR / "agents" / "crypto_agent.py",
-            "misc": BASE_DIR / "agents" / "crypto_agent.py",
-            "ai": BASE_DIR / "agents" / "crypto_agent.py",
-        }
+    chal_file = Path(chal["folder"]) / "challenge.txt"
+    if not chal_file.exists():
+        await log("runner", "没有 challenge.txt")
+        return False, None
 
-        script = agent_scripts.get(agent_type, agent_scripts["crypto"])
-        if not script.exists():
-            await self.ws.send_log(self.agent_name, f"Agent 脚本不存在: {script}")
-            return {"solved": False}
+    env = {**os.environ, "CHALLENGE_FILE": str(chal_file), "WORKSPACE": str(workspace)}
 
-        challenge_file = Path(self.challenge["folder"]) / "challenge.txt"
-        if not challenge_file.exists():
-            await self.ws.send_log(self.agent_name, "challenge.txt 不存在")
-            return {"solved": False}
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable, str(script),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+            env=env, cwd=str(workspace),
+        )
 
-        env = os.environ.copy()
-        env["CHALLENGE_ID"] = self.challenge["id"]
-        env["CHALLENGE_FILE"] = str(challenge_file)
-        env["WORKSPACE"] = str(self.workspace)
+        flag = None
+        async for line in proc.stdout:
+            text = line.decode("utf-8", errors="replace").strip()
+            if not text:
+                continue
+            await log(chal["id"], text)
+            if "FLAG:" in text:
+                flag = text.split("FLAG:")[-1].strip()
 
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                sys.executable,
-                str(script),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-                env=env,
-                cwd=str(self.workspace),
-            )
+        await proc.wait()
+        return flag is not None, flag
 
-            result_flag = None
-            async for line in proc.stdout:
-                text = line.decode("utf-8", errors="replace").strip()
-                if not text:
-                    continue
-                await self.ws.send_log(self.agent_name, text)
-
-                # Check for flag in output
-                if "FLAG:" in text:
-                    result_flag = text.split("FLAG:")[-1].strip()
-
-            await proc.wait()
-
-            return {
-                "solved": result_flag is not None,
-                "flag": result_flag,
-            }
-
-        except Exception as e:
-            await self.ws.send_log(self.agent_name, f"运行异常: {e}")
-            return {"solved": False, "error": str(e)}
+    except Exception as e:
+        await log("runner", f"挂了: {e}")
+        return False, None

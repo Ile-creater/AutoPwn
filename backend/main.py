@@ -1,104 +1,68 @@
-"""
-CTF Auto-Solver Backend — FastAPI + WebSocket
-"""
-
-import asyncio
-import json
-import os
-import sys
+import asyncio, json, os, sys
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-# Add project root to path for imports
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 
 from backend.orchestrator import Orchestrator
 
 app = FastAPI(title="CTF Solver Backend")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 
-class WSManager:
-    """Manages WebSocket connections and message broadcasting."""
-
-    def __init__(self):
-        self.connections: list[WebSocket] = []
-
-    async def connect(self, ws: WebSocket):
-        await ws.accept()
-        self.connections.append(ws)
-
-    def disconnect(self, ws: WebSocket):
-        if ws in self.connections:
-            self.connections.remove(ws)
-
-    async def broadcast(self, data: dict):
-        msg = json.dumps(data, ensure_ascii=False)
-        dead = []
-        for ws in self.connections:
-            try:
-                await ws.send_text(msg)
-            except Exception:
-                dead.append(ws)
-        for ws in dead:
-            self.disconnect(ws)
-
-    async def send_log(self, agent_name: str, line: str):
-        await self.broadcast({
-            "type": "agent_log",
-            "agent_name": agent_name,
-            "line": line.strip(),
-        })
-
-    async def send_agent_update(self, agent: dict):
-        await self.broadcast({"type": "agent_update", "agent": agent})
-
-    async def send_challenge_update(self, challenge: dict):
-        await self.broadcast({"type": "challenge_update", "challenge": challenge})
-
-    async def send_scan_result(self, challenges: list[dict]):
-        await self.broadcast({"type": "scan_result", "challenges": challenges})
-
-    async def send_all_done(self):
-        await self.broadcast({"type": "all_done"})
-
-    async def send_error(self, message: str):
-        await self.broadcast({"type": "error", "message": message})
+# 管 WebSocket 连接和群发消息，懒得写类了
+connections: list[WebSocket] = []
 
 
-ws_manager = WSManager()
+async def _broadcast(data: dict):
+    msg = json.dumps(data, ensure_ascii=False)
+    gone = []
+    for ws in connections:
+        try:
+            await ws.send_text(msg)
+        except:
+            gone.append(ws)
+    for ws in gone:
+        connections.remove(ws)
+
+
+# 这几个是快捷方式，省得每次写 type
+async def push_log(who, text):
+    await _broadcast({"type": "agent_log", "agent_name": who, "line": text.strip()})
+
+
+async def push_agent(a):
+    await _broadcast({"type": "agent_update", "agent": a})
+
+
+async def push_chal(c):
+    await _broadcast({"type": "challenge_update", "challenge": c})
 
 
 @app.websocket("/ws")
-async def websocket_endpoint(ws: WebSocket):
-    await ws_manager.connect(ws)
+async def ws_handler(ws: WebSocket):
+    await ws.accept()
+    connections.append(ws)
 
     challenges_dir = BASE_DIR / "challenges"
-    orchestrator = Orchestrator(challenges_dir, ws_manager)
+    orch = Orchestrator(challenges_dir, push_log, push_agent, push_chal, _broadcast)
 
     try:
         while True:
             raw = await ws.receive_text()
             data = json.loads(raw)
+            t = data.get("type")
 
-            if data.get("type") == "scan":
-                await orchestrator.scan()
-
-            elif data.get("type") == "start":
-                asyncio.create_task(orchestrator.solve_all())
+            if t == "scan":
+                await orch.scan()
+            elif t == "start":
+                asyncio.create_task(orch.solve_all())
 
     except WebSocketDisconnect:
-        ws_manager.disconnect(ws)
+        connections.remove(ws)
 
 
 if __name__ == "__main__":

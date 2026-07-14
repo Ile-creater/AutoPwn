@@ -1,156 +1,105 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import ChallengeList from "@/components/ChallengeList";
 import AgentPanel from "@/components/AgentPanel";
 import LiveTerminal from "@/components/LiveTerminal";
 
-interface Challenge {
-  id: string;
-  title: string;
-  type: string;
-  difficulty: number;
-  status: "pending" | "running" | "solved" | "failed";
-  flag?: string;
-}
-
-interface AgentState {
-  id: string;
-  name: string;
-  status: "idle" | "running" | "done";
-  current_challenge?: string;
-}
-
 export default function Home() {
-  const [ws, setWs] = useState<WebSocket | null>(null);
-  const [connected, setConnected] = useState(false);
-  const [challenges, setChallenges] = useState<Challenge[]>([]);
-  const [agents, setAgents] = useState<AgentState[]>([]);
-  const [logLines, setLogLines] = useState<string[]>([]);
-  const [solving, setSolving] = useState(false);
-  const logEndRef = useRef<HTMLDivElement>(null);
+  const [sock, setSock] = useState<WebSocket | null>(null);
+  const [online, setOnline] = useState(false);
+  const [chals, setChals] = useState<any[]>([]);
+  const [agents, setAgents] = useState<any[]>([]);
+  const [logs, setLogs] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const tailRef = useRef<HTMLDivElement>(null);
 
-  const addLog = useCallback((msg: string) => {
-    setLogLines((prev) => [...prev.slice(-200), msg]);
-  }, []);
+  const pushLog = (s: string) => setLogs((p) => [...p.slice(-200), s]);
 
-  useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [logLines]);
+  // scroll to bottom on new log
+  useEffect(() => { tailRef.current?.scrollIntoView({ behavior: "smooth" }); }, [logs]);
 
-  const connect = useCallback(() => {
-    const socket = new WebSocket("ws://localhost:8000/ws");
-    socket.onopen = () => {
-      addLog("[系统] WebSocket 已连接");
-      setConnected(true);
-      socket.send(JSON.stringify({ type: "scan" }));
+  // websocket guts
+  function hookup() {
+    const ws = new WebSocket("ws://localhost:8000/ws");
+    ws.onopen = () => {
+      pushLog("[sys] ws connected");
+      setOnline(true);
+      ws.send(JSON.stringify({ type: "scan" }));
     };
-    socket.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      handleMessage(data);
-    };
-    socket.onclose = () => {
-      addLog("[系统] WebSocket 断开，3 秒后重连...");
-      setConnected(false);
-      setTimeout(connect, 3000);
-    };
-    setWs(socket);
-  }, []);
+    ws.onmessage = (e) => {
+      const d = JSON.parse(e.data);
 
-  const handleMessage = useCallback((data: any) => {
-    switch (data.type) {
-      case "scan_result":
-        setChallenges(data.challenges || []);
-        addLog(`[扫描] 发现 ${data.challenges?.length || 0} 个题目`);
-        break;
-      case "agent_update":
-        setAgents((prev) => {
-          const exists = prev.find((a) => a.id === data.agent.id);
-          if (exists) {
-            return prev.map((a) => (a.id === data.agent.id ? data.agent : a));
-          }
-          return [...prev, data.agent];
+      if (d.type === "scan_result") {
+        setChals(d.challenges || []);
+        pushLog(`[scan] ${d.challenges?.length || 0} 个题`);
+      } else if (d.type === "agent_update") {
+        setAgents((old) => {
+          const hit = old.find((a) => a.id === d.agent.id);
+          return hit ? old.map((a) => (a.id === d.agent.id ? d.agent : a)) : [...old, d.agent];
         });
-        break;
-      case "agent_log":
-        addLog(`[${data.agent_name || "Agent"}] ${data.line}`);
-        break;
-      case "challenge_update":
-        setChallenges((prev) =>
-          prev.map((c) => (c.id === data.challenge.id ? data.challenge : c))
-        );
-        if (data.challenge.status === "solved") {
-          addLog(`[✓] ${data.challenge.title} 已解出！flag: ${data.challenge.flag}`);
+      } else if (d.type === "agent_log") {
+        pushLog(`[${d.agent_name || "?"}] ${d.line}`);
+      } else if (d.type === "challenge_update") {
+        setChals((old) => old.map((c) => (c.id === d.challenge.id ? d.challenge : c)));
+        if (d.challenge.status === "solved") {
+          pushLog(`[√] ${d.challenge.title} solved! ${d.challenge.flag}`);
         }
-        break;
-      case "all_done":
-        addLog("[系统] 所有题目处理完毕！");
-        setSolving(false);
-        break;
-      case "error":
-        addLog(`[错误] ${data.message}`);
-        break;
-    }
-  }, [addLog]);
+      } else if (d.type === "all_done") {
+        pushLog("[sys] 全搞定了");
+        setBusy(false);
+      } else if (d.type === "error") {
+        pushLog(`[!] ${d.message}`);
+      }
+    };
+    ws.onclose = () => {
+      pushLog("[sys] ws 断了，3s 重连...");
+      setOnline(false);
+      setTimeout(hookup, 3000);
+    };
+    setSock(ws);
+  }
 
   useEffect(() => {
-    connect();
-    return () => ws?.close();
+    hookup();
+    return () => sock?.close();
   }, []);
 
-  const startSolving = () => {
-    setSolving(true);
-    addLog("[系统] 开始解题...");
-    ws?.send(JSON.stringify({ type: "start" }));
+  const kickoff = () => {
+    setBusy(true);
+    pushLog("[sys] go!");
+    sock?.send(JSON.stringify({ type: "start" }));
   };
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      {/* Header */}
+      {/* top bar */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-green-400">
-            ⚡ CTF Auto-Solver
-          </h1>
-          <p className="text-sm text-gray-500 mt-1">
-            AI-Powered Challenge Solver
-          </p>
+          <h1 className="text-2xl font-bold text-green-400">⚡ AutoPwn</h1>
+          <span className="text-xs text-gray-600">multi-agent ctf solver</span>
         </div>
-        <div className="flex items-center gap-4">
-          <span
-            className={`inline-block w-2 h-2 rounded-full ${
-              connected ? "bg-green-400" : "bg-red-500"
-            }`}
-          />
-          <span className="text-sm text-gray-400">
-            {connected ? "已连接" : "未连接"}
-          </span>
+        <div className="flex items-center gap-3">
+          <span className={`inline-block w-2 h-2 rounded-full ${online ? "bg-green-400" : "bg-red-500"}`} />
+          <span className="text-xs text-gray-500">{online ? "online" : "offline"}</span>
           <button
-            onClick={startSolving}
-            disabled={!connected || solving}
-            className={`px-4 py-2 rounded text-sm font-bold transition ${
-              solving || !connected
-                ? "bg-gray-700 text-gray-500 cursor-not-allowed"
-                : "bg-green-600 hover:bg-green-500 text-white"
-            }`}
+            onClick={kickoff}
+            disabled={!online || busy}
+            className={`px-4 py-2 rounded text-sm font-bold ${busy || !online ? "bg-gray-700 text-gray-500" : "bg-green-600 hover:bg-green-500 text-white"}`}
           >
-            {solving ? "解题中..." : "开始解题"}
+            {busy ? "running..." : "start"}
           </button>
         </div>
       </div>
 
-      {/* Main Grid */}
+      {/* challenges + agents */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
-        <div className="lg:col-span-2">
-          <ChallengeList challenges={challenges} />
-        </div>
-        <div>
-          <AgentPanel agents={agents} />
-        </div>
+        <div className="lg:col-span-2"><ChallengeList challenges={chals} /></div>
+        <div><AgentPanel agents={agents} /></div>
       </div>
 
-      {/* Terminal */}
-      <LiveTerminal lines={logLines} logEndRef={logEndRef} />
+      {/* terminal */}
+      <LiveTerminal lines={logs} logEndRef={tailRef} />
     </div>
   );
 }

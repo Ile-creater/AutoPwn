@@ -1,105 +1,88 @@
-"""
-Crypto Agent — handles crypto/encoding challenges.
-Detects encoding types, chains multiple decodings if needed, extracts flag.
-"""
+import os, sys
 
-import os
-import sys
-
-# Add project root to path
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent))
-
 from agents.base_agent import BaseAgent
 
 
 def main():
     workspace = os.environ.get("WORKSPACE", ".")
-    agent = BaseAgent(workspace)
+    a = BaseAgent(workspace)
 
-    print(f"=== CryptoAgent 启动 ===")
-    print(f"工作目录: {workspace}")
+    print(f"CryptoAgent @ {workspace}")
 
-    # Step 1: Read challenge
-    text = agent.read_challenge()
-    if not text:
-        print("错误: challenge.txt 为空")
+    raw = a.read_chal()
+    if not raw:
+        print("空题？challenge.txt 没内容")
         sys.exit(1)
 
-    print(f"题目内容 ({len(text)} 字符):")
-    print(text[:200])
+    print(f"拿到题目 {len(raw)} bytes:")
+    print(raw[:200])
     print()
 
-    # Step 2: Try to find flag directly (maybe it's plaintext?)
-    flag = agent.extract_flag(text)
+    # 直接搜 flag（万一题目就是明文）
+    flag = a.grep_flag(raw)
     if flag:
-        print(f"=> 直接在原文中找到 flag！")
+        print(f"白给！flag 直接写在题面里")
         print(f"FLAG: {flag}")
         return
 
-    # Step 3: Detect encoding and try decode chain
-    current = text
+    # 递归解，最多 5 层
+    cur = raw
     tried = set()
-    max_rounds = 5
+    limit = 5
 
-    for round_num in range(max_rounds):
-        print(f"--- 第 {round_num + 1} 轮解码 ---")
-        print(f"当前文本 ({len(current)} 字符): {current[:100]}...")
+    for rd in range(limit):
+        print(f"--- 第 {rd+1} 轮 ---")
+        # 当前状态的简短预览
+        preview = cur[:80].replace("\n", "\\n")
+        print(f"[{len(cur)}B] {preview}...")
 
-        # Detect possible encodings
-        candidates = agent.detect_encoding(current)
-        # Skip already tried combos
-        candidates = [c for c in candidates if (c, len(current)) not in tried]
+        todo = [c for c in a.sniff(cur) if (c, len(cur)) not in tried]
+        if not todo:
+            print("嗅不出编码了，硬试 base64...")
+            todo = ["base64"]
 
-        if not candidates:
-            print("没有检测到已知编码，尝试暴力 base64...")
-            candidates = ["base64"]
-
-        solved = False
-        for enc in candidates:
-            key = (enc, len(current))
-            if key in tried:
-                continue
-            tried.add(key)
-
-            decoded = agent.try_decode(current, enc)
-            if decoded is None:
-                print(f"  {enc}: 解码失败")
+        hit = False
+        for method in todo:
+            tried.add((method, len(cur)))
+            r = a.decode(cur, method)
+            if r is None:
+                print(f"  {method} → 解码失败")
                 continue
 
-            print(f"  {enc}: 解码成功 → {decoded[:80]}...")
+            snippet = r[:80].replace("\n", "\\n")
+            print(f"  {method} → {snippet}...")
 
-            # Check if decoded result contains flag
-            flag = agent.extract_flag(decoded)
-            if flag:
-                print(f"=> 找到 flag！编码链: {enc}")
-                print(f"FLAG: {flag}")
+            f = a.grep_flag(r)
+            if f:
+                print(f"拿到 flag！链: {method}")
+                print(f"FLAG: {f}")
                 return
 
-            # Check if decoded result looks like more encoded data
-            next_candidates = agent.detect_encoding(decoded)
-            if next_candidates:
-                print(f"  检测到下一层编码: {next_candidates}")
-                current = decoded
-                solved = True
+            # 解码出来的还能继续解吗
+            if a.sniff(r):
+                print(f"  还有料，继续扒...")
+                cur = r
+                hit = True
                 break
 
-            # Even if no next encoding detected, try one more round
-            current = decoded
-            solved = True
+            # 没检测到下一层，但也往下走一步碰碰运气
+            cur = r
+            hit = True
             break
 
-        if not solved:
-            print("本轮所有尝试均失败，停止。")
+        if not hit:
+            print("全试了一遍都不行，跑路")
             break
 
-    # Step 4: Final check — maybe decoded text contains flag but with different pattern
-    flag = agent.extract_flag(current)
-    if flag:
-        print(f"=> 最终发现 flag: {flag}")
-        print(f"FLAG: {flag}")
+    # 最后捞一次
+    f = a.grep_flag(cur)
+    if f:
+        print(f"最后捞出: {f}")
+        print(f"FLAG: {f}")
     else:
-        print("未能解出 flag，最终解码结果：")
-        print(current[:500])
+        print("没搞出来，最终结果：")
+        print(cur[:500])
 
 
 if __name__ == "__main__":

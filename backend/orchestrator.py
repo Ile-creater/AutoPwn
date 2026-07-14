@@ -1,110 +1,78 @@
-"""
-Orchestrator — scans challenge directories, sorts by difficulty, dispatches to agents.
-"""
-
 import json
-import asyncio
 from pathlib import Path
 
 
 class Orchestrator:
-    def __init__(self, challenges_dir: Path, ws_manager):
-        self.challenges_dir = challenges_dir
-        self.ws = ws_manager
-        self.challenges: list[dict] = []
+    def __init__(self, challenges_dir, push_log, push_agent, push_chal, broadcast):
+        self.dir = challenges_dir
+        self.log = push_log
+        self.push_agent = push_agent
+        self.push_chal = push_chal
+        self.bcast = broadcast
+        self.chals = []
 
     async def scan(self):
-        """Scan the challenges directory and load all challenges."""
-        self.challenges = []
+        self.chals = []
 
-        if not self.challenges_dir.exists():
-            await self.ws.send_error("challenges/ 目录不存在")
+        if not self.dir.exists():
+            await self.bcast({"type": "error", "message": "challenges/ 目录不存在"})
             return
 
-        for folder in sorted(self.challenges_dir.iterdir()):
+        for folder in sorted(self.dir.iterdir()):
             if not folder.is_dir():
                 continue
-            meta_file = folder / "challenge.json"
-            if not meta_file.exists():
+            meta = folder / "challenge.json"
+            if not meta.exists():
                 continue
 
             try:
-                meta = json.loads(meta_file.read_text(encoding="utf-8"))
-                challenge = {
-                    "id": meta.get("id", folder.name),
-                    "title": meta.get("title", folder.name),
-                    "type": meta.get("type", "misc"),
-                    "difficulty": meta.get("difficulty", 3),
-                    "status": "pending",
-                    "folder": str(folder),
-                }
-                self.challenges.append(challenge)
-            except Exception as e:
-                await self.ws.send_error(f"读取 {folder.name}/challenge.json 失败: {e}")
-
-        # Sort by difficulty (easy first)
-        self.challenges.sort(key=lambda c: c["difficulty"])
-
-        # Send to frontend
-        scan_list = [
-            {
-                "id": c["id"],
-                "title": c["title"],
-                "type": c["type"],
-                "difficulty": c["difficulty"],
-                "status": c["status"],
-            }
-            for c in self.challenges
-        ]
-        await self.ws.send_scan_result(scan_list)
-
-    async def solve_all(self):
-        """Solve all challenges one by one."""
-        from backend.agent_runner import AgentRunner
-
-        for idx, challenge in enumerate(self.challenges):
-            if challenge["status"] == "solved":
+                d = json.loads(meta.read_text(encoding="utf-8"))
+            except:
+                await self.log("Orch", f"读取 {folder.name}/challenge.json 崩了")
                 continue
 
-            agent_id = f"agent-{idx + 1}"
-            agent_name = f"CryptoAgent-{idx + 1}"
-
-            await self.ws.send_agent_update({
-                "id": agent_id,
-                "name": agent_name,
-                "status": "running",
-                "current_challenge": challenge["title"],
+            self.chals.append({
+                "id": d.get("id", folder.name),
+                "title": d.get("title", folder.name),
+                "type": d.get("type", "misc"),
+                "difficulty": d.get("difficulty", 3),
+                "status": "pending",
+                "folder": str(folder),
             })
 
-            await self.ws.send_challenge_update({
-                "id": challenge["id"],
-                "title": challenge["title"],
-                "type": challenge["type"],
-                "difficulty": challenge["difficulty"],
-                "status": "running",
-            })
+        # easy first
+        self.chals.sort(key=lambda c: c["difficulty"])
 
-            runner = AgentRunner(challenge, self.ws, agent_name)
-            result = await runner.run()
+        await self.bcast({
+            "type": "scan_result",
+            "challenges": [{k: c[k] for k in ("id", "title", "type", "difficulty", "status")} for c in self.chals],
+        })
 
-            if result.get("solved"):
-                challenge["status"] = "solved"
-                challenge["flag"] = result["flag"]
-                await self.ws.send_challenge_update({
-                    **challenge,
-                    "flag": result["flag"],
-                })
+    async def solve_all(self):
+        from backend.agent_runner import run_agent
+
+        for i, c in enumerate(self.chals):
+            if c["status"] == "solved":
+                continue
+
+            agent = {"id": f"a-{i+1}", "name": f"CryptoAgent-{i+1}", "status": "running", "current_challenge": c["title"]}
+            await self.push_agent(agent)
+
+            c["status"] = "running"
+            await self.push_chal(c)
+
+            agent_type = c.get("type", "crypto")
+            ok, flag = await run_agent(c, self.log, agent_type)
+
+            if ok and flag:
+                c["status"] = "solved"
+                c["flag"] = flag
             else:
-                challenge["status"] = "failed"
-                await self.ws.send_challenge_update({
-                    **challenge,
-                })
+                c["status"] = "failed"
+            await self.push_chal(c)
 
-            await self.ws.send_agent_update({
-                "id": agent_id,
-                "name": agent_name,
-                "status": "done",
-                "current_challenge": None,
-            })
+            agent["status"] = "done"
+            agent["current_challenge"] = None
+            await self.push_agent(agent)
 
-        await self.ws.send_all_done()
+        await self.bcast({"type": "all_done"})
