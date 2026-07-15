@@ -1,5 +1,8 @@
-import json
+import asyncio, json
 from pathlib import Path
+
+
+TYPE_LABEL = {"crypto": "CryptoAgent", "web": "WebAgent", "bin": "BinAgent", "misc": "MiscAgent", "ai": "AIAgent"}
 
 
 class Orchestrator:
@@ -10,6 +13,7 @@ class Orchestrator:
         self.push_chal = push_chal
         self.bcast = broadcast
         self.chals = []
+        self._running = False
 
     async def scan(self):
         self.chals = []
@@ -40,7 +44,6 @@ class Orchestrator:
                 "folder": str(folder),
             })
 
-        # easy first
         self.chals.sort(key=lambda c: c["difficulty"])
 
         await self.bcast({
@@ -49,30 +52,34 @@ class Orchestrator:
         })
 
     async def solve_all(self):
+        if self._running:
+            await self.log("Orch", "已经在跑了，别急")
+            return
+        self._running = True
+
         from backend.agent_runner import run_agent
 
-        for i, c in enumerate(self.chals):
-            if c["status"] == "solved":
-                continue
+        async def solve_one(c):
+            agent_type = c.get("type", "crypto")
+            label = TYPE_LABEL.get(agent_type, "Agent")
+            name = f"{label}-{c['id']}"
 
-            agent = {"id": f"a-{i+1}", "name": f"CryptoAgent-{i+1}", "status": "running", "current_challenge": c["title"]}
-            await self.push_agent(agent)
-
+            await self.push_agent({"id": c["id"], "name": name, "status": "running", "current_challenge": c["title"]})
             c["status"] = "running"
             await self.push_chal(c)
 
-            agent_type = c.get("type", "crypto")
-            ok, flag = await run_agent(c, self.log, agent_type)
+            ok, flag, _ = await run_agent(c, self.log)
 
-            if ok and flag:
-                c["status"] = "solved"
-                c["flag"] = flag
-            else:
-                c["status"] = "failed"
+            c["status"] = "solved" if ok and flag else "failed"
+            c["flag"] = flag
             await self.push_chal(c)
 
-            agent["status"] = "done"
-            agent["current_challenge"] = None
-            await self.push_agent(agent)
+            await self.push_agent({"id": c["id"], "name": name, "status": "done", "current_challenge": None})
 
+        # 所有题一起跑
+        tasks = [solve_one(c) for c in self.chals if c["status"] != "solved"]
+        if tasks:
+            await asyncio.gather(*tasks)
+
+        self._running = False
         await self.bcast({"type": "all_done"})

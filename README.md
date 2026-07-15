@@ -57,15 +57,12 @@ challenges/
   ↕ WebSocket
 FastAPI (主控)
   ├─ 扫 challenges/ 目录，按 difficulty 排序
-  ├─ 逐个启动子进程 agent
-  ├─ 捕获 stdout → 实时推到前端
-  └─ 检测到 FLAG:xxx → 标记 solved → 下一题
+  ├─ asyncio.gather 全部题一起跑
+  ├─ 3 个 subprocess → stdout 实时推到终端
+  └─ 检测到 FLAG:xxx → 标记 solved
 
-agent 子进程
-  ├─ 读 challenge.txt
-  ├─ 嗅探编码类型 (base64 / hex / base32 / base85 / rot13)
-  ├─ 递推解码，最多 5 层
-  └─ 打印 FLAG:xxx 到 stdout
+  CryptoAgent         WebAgent            BinAgent
+  (base64/hex/rot13)  (HTML/注释/扫描)   (strings/checksec/objdump)
 ```
 
 ## 目录结构
@@ -75,7 +72,8 @@ AutoPwn/
 ├── agents/              # 解题 agent
 │   ├── base_agent.py    #   嗅探、解码、HTTP 请求公共方法
 │   ├── crypto_agent.py  #   密码/编码类
-│   └── web_agent.py     #   Web 类：注释挖掘、目录扫描、隐藏字段
+│   ├── web_agent.py     #   Web 类：注释挖掘、目录扫描、隐藏字段
+│   └── bin_agent.py     #   逆向类：pwntools / strings / checksec / ELF分析
 ├── backend/             # FastAPI
 │   ├── main.py          #   WebSocket + 路由
 │   ├── orchestrator.py  #   扫题、排序、派发
@@ -89,8 +87,8 @@ AutoPwn/
 ## TODO
 
 - [x] Web Agent — requests + HTML 分析，注释/隐藏字段/目录扫描/backup 探测
-- [ ] Binary Agent — pwntools / gdb 处理逆向
-- [ ] 多 Agent 并行 — asyncio.gather 同时解题
+- [x] Binary Agent — pwntools + strings + checksec + objdump + ELF 分析
+- [x] 多 Agent 并行 — asyncio.gather 一起跑，题目互不阻塞
 - [ ] 接 Ollama — 替换 sniff() 的硬编码模式匹配
 - [ ] Docker 沙箱 — agent 不该在宿主机随便跑
 

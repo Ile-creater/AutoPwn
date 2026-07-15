@@ -3,24 +3,38 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+AGENT_MAP = {
+    "crypto": "crypto_agent.py",
+    "web":    "web_agent.py",
+    "bin":    "bin_agent.py",
+    "misc":   "crypto_agent.py",
+    "ai":     "crypto_agent.py",
+}
 
-async def run_agent(chal, log, agent_type="crypto"):
-    """把 challenge 丢给子进程跑，把 stdout 一行行推出去。返回 (solved, flag)。"""
-    workspace = BASE_DIR / "workspace" / chal["id"]
-    workspace.mkdir(parents=True, exist_ok=True)
 
-    # 现在只有 crypto agent，后面再加别的
-    script = BASE_DIR / "agents" / f"{agent_type}_agent.py"
+async def run_agent(chal, log):
+    """启子进程跑 agent，stdout 一行行推出去。返回 (solved, flag, agent_name)。"""
+    agent_type = chal.get("type", "crypto")
+    script_name = AGENT_MAP.get(agent_type, "crypto_agent.py")
+    script = BASE_DIR / "agents" / script_name
     if not script.exists():
-        await log("runner", f"没找到 agent 脚本: {script}")
-        return False, None
+        await log(chal["id"], f"没找到 agent: {script}")
+        return False, None, agent_type
 
     chal_file = Path(chal["folder"]) / "challenge.txt"
     if not chal_file.exists():
-        await log("runner", "没有 challenge.txt")
-        return False, None
+        await log(chal["id"], "没有 challenge.txt")
+        return False, None, agent_type
 
-    env = {**os.environ, "CHALLENGE_FILE": str(chal_file), "WORKSPACE": str(workspace)}
+    workspace = BASE_DIR / "workspace" / chal["id"]
+    workspace.mkdir(parents=True, exist_ok=True)
+
+    env = {
+        **os.environ,
+        "CHALLENGE_FILE": str(chal_file),
+        "CHALLENGE_DIR": chal["folder"],
+        "WORKSPACE": str(workspace),
+    }
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -39,8 +53,8 @@ async def run_agent(chal, log, agent_type="crypto"):
                 flag = text.split("FLAG:")[-1].strip()
 
         await proc.wait()
-        return flag is not None, flag
+        return flag is not None, flag, agent_type
 
     except Exception as e:
-        await log("runner", f"挂了: {e}")
-        return False, None
+        await log(chal["id"], f"挂了: {e}")
+        return False, None, agent_type
