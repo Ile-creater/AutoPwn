@@ -11,12 +11,21 @@ class BaseAgent:
         f = os.environ.get("CHALLENGE_FILE", "")
         return Path(f).read_text(encoding="utf-8", errors="replace") if f else ""
 
+    def fetch(self, url, timeout=10):
+        """HTTP GET，返回 (status, headers_dict, body_text)。挂了返回 None"""
+        try:
+            import requests
+            r = requests.get(url, timeout=timeout, allow_redirects=True, headers={
+                "User-Agent": "AutoPwn/0.1"
+            })
+            return r.status_code, dict(r.headers), r.text
+        except Exception as e:
+            return None, None, str(e)
+
     def sniff(self, s):
-        """返回这段文字可能的编码列表，按靠谱程度排的"""
         s = s.strip()
         out = []
 
-        # base64 family
         if re.match(r"^[A-Za-z0-9+/=]+$", s) and len(s) % 4 == 0:
             out.append("base64")
         if re.match(r"^[0-9a-fA-F]+$", s) and len(s) % 2 == 0:
@@ -26,7 +35,6 @@ class BaseAgent:
         if re.match(r"^[A-Za-z0-9!#$%&()*+,\-./:;<=>?@[\]^_`{|}~]+$", s):
             out.append("base85")
 
-        # 兜底：至少试试这些
         out.append("reverse")
         if re.match(r"^[a-zA-Z\s{}_\-]+$", s):
             out.append("rot13")
@@ -47,7 +55,6 @@ class BaseAgent:
             if method == "reverse":
                 return s[::-1]
             if method == "rot13":
-                # 手写 rot13，就几行不想 import codecs 了
                 r = []
                 for ch in s:
                     if 'a' <= ch <= 'z':
@@ -67,3 +74,11 @@ class BaseAgent:
             if m:
                 return m.group(0)
         return None
+
+    def grep_all_flags(self, s):
+        """捞所有 flag，不重复"""
+        found = set()
+        for pat in (r"flag\{[^}]+\}", r"FLAG\{[^}]+\}", r"ctf\{[^}]+\}", r"CTF\{[^}]+\}"):
+            for m in re.finditer(pat, s):
+                found.add(m.group(0))
+        return list(found)

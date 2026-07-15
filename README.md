@@ -73,8 +73,9 @@ agent 子进程
 ```
 AutoPwn/
 ├── agents/              # 解题 agent
-│   ├── base_agent.py    #   嗅探、解码、捞 flag 公共方法
-│   └── crypto_agent.py  #   密码/编码类
+│   ├── base_agent.py    #   嗅探、解码、HTTP 请求公共方法
+│   ├── crypto_agent.py  #   密码/编码类
+│   └── web_agent.py     #   Web 类：注释挖掘、目录扫描、隐藏字段
 ├── backend/             # FastAPI
 │   ├── main.py          #   WebSocket + 路由
 │   ├── orchestrator.py  #   扫题、排序、派发
@@ -87,7 +88,7 @@ AutoPwn/
 
 ## TODO
 
-- [ ] Web Agent — playwright / requests 处理 Web 类
+- [x] Web Agent — requests + HTML 分析，注释/隐藏字段/目录扫描/backup 探测
 - [ ] Binary Agent — pwntools / gdb 处理逆向
 - [ ] 多 Agent 并行 — asyncio.gather 同时解题
 - [ ] 接 Ollama — 替换 sniff() 的硬编码模式匹配

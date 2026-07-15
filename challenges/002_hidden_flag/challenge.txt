@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>公司官网</title>
+    <!-- TODO: 记得删掉调试信息 ZmxhZ3toaWRkZW5faW5fY29tbWVudH0= -->
+    <!-- 上面的东西别让运维看到 -->
+</head>
+<body>
+    <h1>欢迎来到公司官网</h1>
+    <p>本网站正在建设中...</p>
+    <p>如有疑问请联系管理员 admin@company.com</p>
+    <!-- /debug?token= -->
+</body>
+</html>
