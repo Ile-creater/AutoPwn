@@ -70,6 +70,8 @@ async def run_agent(chal, log, use_docker=False):
         "-v", f"{chal_folder}:/chal:ro",
         "-v", f"{workspace}:/ws",
         "-e", f"CHALLENGE_FILE=/chal/challenge.txt",
+        "-e", f"CHALLENGE_URL={chal.get('url', '')}",
+        "-e", f"CHALLENGE_HINTS={chal.get('hints', '')}",
         "-e", "CHALLENGE_DIR=/chal",
         "-e", "WORKSPACE=/ws",
         IMAGE,
@@ -117,6 +119,8 @@ async def _run_subprocess(chal, log, agent_type):
         "CHALLENGE_FILE": str(chal_file),
         "CHALLENGE_DIR": chal["folder"],
         "WORKSPACE": str(workspace),
+        "CHALLENGE_URL": chal.get("url", ""),
+        "CHALLENGE_HINTS": chal.get("hints", ""),
     }
 
     proc = await asyncio.create_subprocess_exec(

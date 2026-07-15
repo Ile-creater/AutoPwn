@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import ChallengeList from "@/components/ChallengeList";
 import AgentPanel from "@/components/AgentPanel";
 import LiveTerminal from "@/components/LiveTerminal";
+import SubmitForm from "@/components/SubmitForm";
 
 export default function Home() {
   const [sock, setSock] = useState<WebSocket | null>(null);
@@ -49,6 +50,9 @@ export default function Home() {
       } else if (d.type === "all_done") {
         pushLog("[sys] 全搞定了");
         setBusy(false);
+      } else if (d.type === "new_challenge") {
+        setChals((old) => [...old, d.challenge]);
+        pushLog(`[sys] 新题: ${d.challenge.title}`);
       } else if (d.type === "error") {
         pushLog(`[!] ${d.message}`);
       }
@@ -99,7 +103,10 @@ export default function Home() {
 
       {/* challenges + agents */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
-        <div className="lg:col-span-2"><ChallengeList challenges={chals} /></div>
+        <div className="lg:col-span-2">
+          <SubmitForm />
+          <div className="mt-4"><ChallengeList challenges={chals} /></div>
+        </div>
         <div><AgentPanel agents={agents} /></div>
       </div>
 
