@@ -13,6 +13,10 @@
 开两个终端：
 
 ```bash
+# 0. 构建 Docker 沙箱（首次）
+cd AutoPwn
+docker build -t auto-pwn-agent -f docker\Dockerfile .
+
 # 终端 1 — 后端
 cd AutoPwn
 pip install -r backend/requirements.txt
@@ -23,6 +27,8 @@ cd AutoPwn/frontend
 npm install
 npm run dev
 ```
+
+> 没装 Docker 也没事，agent_runner 会自动退回子进程模式。
 
 浏览器打开 **http://localhost:3000**，点 **start**。
 
@@ -77,7 +83,10 @@ AutoPwn/
 ├── backend/             # FastAPI
 │   ├── main.py          #   WebSocket + 路由
 │   ├── orchestrator.py  #   扫题、排序、派发
-│   └── agent_runner.py  #   启子进程、抓输出
+│   └── agent_runner.py  #   Docker 沙箱启动器（没装则退回 subprocess）
+├── docker/              # 沙箱镜像
+│   ├── Dockerfile       #   python:slim + binwalk + pwntools + agent
+│   └── build.bat        #   一键构建
 ├── frontend/            # Next.js 仪表盘
 │   └── components/      #   ChallengeList / AgentPanel / LiveTerminal
 ├── challenges/          # CTF 题目
@@ -89,8 +98,8 @@ AutoPwn/
 - [x] Web Agent — requests + HTML 分析，注释/隐藏字段/目录扫描/backup 探测
 - [x] Binary Agent — pwntools + strings + checksec + objdump + ELF 分析
 - [x] 多 Agent 并行 — asyncio.gather 一起跑，题目互不阻塞
+- [x] Docker 沙箱 — 每个 agent 独立容器，crypto/bin 断网，web 放行，512M/1核
 - [ ] 接 Ollama — 替换 sniff() 的硬编码模式匹配
-- [ ] Docker 沙箱 — agent 不该在宿主机随便跑
 
 ## License
 
