@@ -12,6 +12,7 @@ export default function Home() {
   const [agents, setAgents] = useState<any[]>([]);
   const [logs, setLogs] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [useDocker, setUseDocker] = useState(false);
   const tailRef = useRef<HTMLDivElement>(null);
 
   const pushLog = (s: string) => setLogs((p) => [...p.slice(-200), s]);
@@ -67,8 +68,8 @@ export default function Home() {
 
   const kickoff = () => {
     setBusy(true);
-    pushLog("[sys] go!");
-    sock?.send(JSON.stringify({ type: "start" }));
+    pushLog(`[sys] go! docker=${useDocker}`);
+    sock?.send(JSON.stringify({ type: "start", use_docker: useDocker }));
   };
 
   return (
@@ -82,6 +83,10 @@ export default function Home() {
         <div className="flex items-center gap-3">
           <span className={`inline-block w-2 h-2 rounded-full ${online ? "bg-green-400" : "bg-red-500"}`} />
           <span className="text-xs text-gray-500">{online ? "online" : "offline"}</span>
+          <label className="flex items-center gap-1 text-xs text-gray-500 cursor-pointer">
+            <input type="checkbox" checked={useDocker} onChange={(e) => setUseDocker(e.target.checked)} className="accent-green-500" />
+            🐳 sandbox
+          </label>
           <button
             onClick={kickoff}
             disabled={!online || busy}

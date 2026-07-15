@@ -3,7 +3,7 @@ agent_runner — 把挑战丢进独立 Docker 沙箱里跑，stdout 一行行推
 每个 challenge type 隔离策略不同：crypto/bin 断网，web 放行。
 """
 
-import asyncio, os, shutil
+import asyncio, os, shutil, subprocess
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -25,20 +25,40 @@ def _docker_exists():
     return shutil.which("docker") is not None
 
 
-async def run_agent(chal, log):
-    """Docker 沙箱里跑 agent。返回 (solved, flag, agent_type)。"""
+def _image_exists():
+    """检查 auto-pwn-agent 镜像在不在本地。"""
+    try:
+        r = subprocess.run(
+            ["docker", "image", "inspect", IMAGE],
+            capture_output=True, timeout=5
+        )
+        return r.returncode == 0
+    except:
+        return False
+
+
+async def run_agent(chal, log, use_docker=False):
+    """跑 agent。use_docker=True 时用沙箱，否则子进程。返回 (solved, flag, agent_type)。"""
     agent_type = chal.get("type", "crypto")
     script_name = AGENT_MAP.get(agent_type, "crypto_agent.py")
-    container_script = f"/app/agents/{script_name}"
 
     chal_folder = chal["folder"]
     workspace = BASE_DIR / "workspace" / chal["id"]
     workspace.mkdir(parents=True, exist_ok=True)
 
-    # Docker 不存在就退回子进程模式
-    if not _docker_exists():
-        await log(chal["id"], "docker 没装，退回 subprocess 模式")
+    # 没开 docker 或者没装 docker 都走子进程
+    if not use_docker:
         return await _run_subprocess(chal, log, agent_type)
+
+    if not _docker_exists():
+        await log(chal["id"], "docker 没装，退回 subprocess")
+        return await _run_subprocess(chal, log, agent_type)
+
+    if not _image_exists():
+        await log(chal["id"], "镜像没构建，退回 subprocess")
+        return await _run_subprocess(chal, log, agent_type)
+
+    container_script = f"/app/agents/{script_name}"
 
     # 构建 docker run 命令
     network = "none" if agent_type not in NEEDS_NET else "bridge"

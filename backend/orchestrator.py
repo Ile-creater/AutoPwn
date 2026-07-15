@@ -51,7 +51,7 @@ class Orchestrator:
             "challenges": [{k: c[k] for k in ("id", "title", "type", "difficulty", "status")} for c in self.chals],
         })
 
-    async def solve_all(self):
+    async def solve_all(self, use_docker=False):
         if self._running:
             await self.log("Orch", "已经在跑了，别急")
             return
@@ -68,7 +68,7 @@ class Orchestrator:
             c["status"] = "running"
             await self.push_chal(c)
 
-            ok, flag, _ = await run_agent(c, self.log)
+            ok, flag, _ = await run_agent(c, self.log, use_docker=use_docker)
 
             c["status"] = "solved" if ok and flag else "failed"
             c["flag"] = flag

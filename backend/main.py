@@ -59,7 +59,7 @@ async def ws_handler(ws: WebSocket):
             if t == "scan":
                 await orch.scan()
             elif t == "start":
-                asyncio.create_task(orch.solve_all())
+                asyncio.create_task(orch.solve_all(use_docker=data.get("use_docker", False)))
 
     except WebSocketDisconnect:
         connections.remove(ws)
