@@ -37,9 +37,10 @@ def main():
     chal_dir = os.environ.get("CHALLENGE_DIR", "")
     a = BaseAgent(workspace)
 
-    print(f"BinAgent @ {workspace}")
+    llm_ok = a._llm("ok", timeout=2)
+    mode = "AI" if llm_ok else "basic"
+    print(f"BinAgent @ {workspace} [{mode}]")
 
-    # 先读题目描述
     raw = a.read_chal()
     desc = raw.strip() if raw else "(无描述)"
     print(f"题目: {desc[:200]}")
@@ -100,6 +101,12 @@ def main():
         print(f"  可疑字符串 ({len(interesting)} 条):")
         for s in interesting[:20]:
             print(f"    {s[:120]}")
+
+        # AI 分析 strings 输出
+        if llm_ok:
+            insight = a.ai_analyze_binary("\n".join(interesting[:50]), out[:300] if out else "unknown")
+            if insight:
+                print(f"AI: {insight[:300]}")
 
     # ====== Phase 3: hexdump 找内嵌 flag ======
     print("\n--- hexdump 搜 flag ---")

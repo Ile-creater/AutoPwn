@@ -66,7 +66,8 @@ def main():
     a = BaseAgent(workspace)
     ws = Path(workspace)
 
-    print(f"MiscAgent @ {workspace}")
+    llm_ok = a._llm("ok", timeout=2)
+    print(f"MiscAgent @ {workspace} [{'AI' if llm_ok else 'basic'}]")
 
     raw = a.read_chal()
     desc = raw.strip()[:200] if raw else "(无描述)"

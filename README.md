@@ -101,7 +101,20 @@ AutoPwn/
 - [x] 多 Agent 并行 — asyncio.gather 一起跑，题目互不阻塞
 - [x] Docker 沙箱 — 每个 agent 独立容器，crypto/bin 断网，web 放行，512M/1核
 - [x] Misc Agent — 文件分离/stego/zip/归档/元数据/binwalk/foremost
-- [ ] 接 Ollama — 替换 sniff() 的硬编码模式匹配
+- [x] 接 Ollama — AI 推理编码类型/攻击方向/二进制分析，模型不在自动降级
+
+## AI 推理
+
+所有 agent 都支持本地 Ollama 推理，**装了就自动用，不装也不影响**。
+
+```bash
+# 安装 Ollama
+winget install Ollama.Ollama
+# 拉个模型（推荐 qwen2.5:3b，够小够快）
+ollama pull qwen2.5:3b
+```
+
+Agent 启动时会显示 `[AI]` 或 `[basic]` 告知当前模式。LLM 不在时自动降级为硬编码规则。
 
 ## License
 
