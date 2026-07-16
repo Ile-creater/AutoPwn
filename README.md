@@ -79,7 +79,8 @@ AutoPwn/
 │   ├── base_agent.py    #   嗅探、解码、HTTP 请求公共方法
 │   ├── crypto_agent.py  #   密码/编码类
 │   ├── web_agent.py     #   Web 类：注释挖掘、目录扫描、隐藏字段
-│   └── bin_agent.py     #   逆向类：pwntools / strings / checksec / ELF分析
+│   ├── bin_agent.py     #   逆向类：pwntools / strings / checksec / ELF分析
+│   └── misc_agent.py    #   杂项类：file/stego/zip/元数据/归档分析
 ├── backend/             # FastAPI
 │   ├── main.py          #   WebSocket + 路由
 │   ├── orchestrator.py  #   扫题、排序、派发
@@ -99,6 +100,7 @@ AutoPwn/
 - [x] Binary Agent — pwntools + strings + checksec + objdump + ELF 分析
 - [x] 多 Agent 并行 — asyncio.gather 一起跑，题目互不阻塞
 - [x] Docker 沙箱 — 每个 agent 独立容器，crypto/bin 断网，web 放行，512M/1核
+- [x] Misc Agent — 文件分离/stego/zip/归档/元数据/binwalk/foremost
 - [ ] 接 Ollama — 替换 sniff() 的硬编码模式匹配
 
 ## License

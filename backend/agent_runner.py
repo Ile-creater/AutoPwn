@@ -13,7 +13,7 @@ AGENT_MAP = {
     "crypto": "crypto_agent.py",
     "web":    "web_agent.py",
     "bin":    "bin_agent.py",
-    "misc":   "crypto_agent.py",
+    "misc":   "misc_agent.py",
     "ai":     "crypto_agent.py",
 }
 
