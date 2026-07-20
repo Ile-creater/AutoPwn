@@ -1,4 +1,4 @@
-import asyncio, json, os, sys, uuid
+import asyncio, json, os, shutil, sys, uuid
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -55,6 +55,49 @@ class SolveReq(BaseModel):
     challenge_ids: list[str] = []
 
 
+# ---- 工具检测 ----
+
+TOOL_LINKS = {
+    "rizin":       "https://github.com/rizinorg/rizin/releases",
+    "ollama":      "https://ollama.com/download",
+    "docker":      "https://www.docker.com/products/docker-desktop",
+    "pwntools":    "pip install pwntools",
+    "binwalk":     "pip install binwalk",
+    "exiftool":    "winget install exiftool",
+    "steghide":    "winget install steghide",
+}
+
+def _check_tool(name):
+    if name == "rizin":
+        for loc in (r"C:\Program Files\rizin\bin\rizin.exe",
+                    r"C:\Program Files (x86)\rizin\bin\rizin.exe",
+                    "/usr/bin/rizin", "/usr/local/bin/rizin"):
+            if os.path.exists(loc): return True
+        return bool(shutil.which("rizin") or shutil.which("r2") or shutil.which("radare2"))
+    if name == "ollama":
+        return bool(shutil.which("ollama")) or \
+               os.path.exists(r"C:\Users\PC\AppData\Local\Programs\Ollama\ollama.exe") or \
+               os.path.exists("/usr/local/bin/ollama")
+    if name == "docker":
+        return bool(shutil.which("docker"))
+    if name == "pwntools":
+        try: import pwn; return True
+        except: return False
+    if name == "binwalk":
+        return bool(shutil.which("binwalk"))
+    if name == "exiftool":
+        return bool(shutil.which("exiftool")) or bool(shutil.which("exif"))
+    if name == "steghide":
+        return bool(shutil.which("steghide"))
+    return None
+
+
+@app.get("/api/tools")
+@app.get("/api/tools")
+async def tools_status():
+    return [{"name": n, "ok": _check_tool(n), "install": TOOL_LINKS.get(n, "")}
+            for n in ("rizin", "ollama", "docker", "pwntools", "binwalk", "exiftool")]
+
 @app.post("/api/submit")
 async def submit_challenge(req: SubmitReq):
     """提交一道 Web 题到池子里"""
@@ -107,6 +150,11 @@ async def solve_challenges(req: SolveReq):
 async def ws_handler(ws: WebSocket):
     await ws.accept()
     connections.append(ws)
+
+    # 建连时推送工具状态
+    tools = [{"name": n, "ok": _check_tool(n), "install": TOOL_LINKS.get(n, "")}
+             for n in ("rizin", "ollama", "docker", "pwntools", "binwalk", "exiftool")]
+    await ws.send_text(json.dumps({"type": "tools_status", "tools": tools}, ensure_ascii=False))
 
     challenges_dir = BASE_DIR / "challenges"
     orch = Orchestrator(challenges_dir, push_log, push_agent, push_chal, _broadcast)

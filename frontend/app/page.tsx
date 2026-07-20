@@ -5,6 +5,7 @@ import ChallengeList from "@/components/ChallengeList";
 import AgentPanel from "@/components/AgentPanel";
 import LiveTerminal from "@/components/LiveTerminal";
 import SubmitForm from "@/components/SubmitForm";
+import ToolPanel from "@/components/ToolPanel";
 
 export default function Home() {
   const [sock, setSock] = useState<WebSocket | null>(null);
@@ -14,6 +15,7 @@ export default function Home() {
   const [logs, setLogs] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [useDocker, setUseDocker] = useState(false);
+  const [tools, setTools] = useState<any[]>([]);
   const tailRef = useRef<HTMLDivElement>(null);
 
   const pushLog = (s: string) => setLogs((p) => [...p.slice(-200), s]);
@@ -55,6 +57,8 @@ export default function Home() {
         pushLog(`[sys] 新题: ${d.challenge.title}`);
       } else if (d.type === "error") {
         pushLog(`[!] ${d.message}`);
+      } else if (d.type === "tools_status") {
+        setTools(d.tools || []);
       }
     };
     ws.onclose = () => {
@@ -107,7 +111,10 @@ export default function Home() {
           <SubmitForm />
           <div className="mt-4"><ChallengeList challenges={chals} /></div>
         </div>
-        <div><AgentPanel agents={agents} /></div>
+        <div>
+          <AgentPanel agents={agents} />
+          <div className="mt-4"><ToolPanel tools={tools} /></div>
+        </div>
       </div>
 
       {/* terminal */}
