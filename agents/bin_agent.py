@@ -31,11 +31,17 @@ def find_binary(chal_dir):
 
 
 def _r2_binary():
-    """找 radare2 / rizin 的 CLI 路径。返回可执行名或 None"""
+    # 先搜 PATH
     for name in ("rizin", "r2", "radare2"):
         p = subprocess.run(f"where {name}", shell=True, capture_output=True, text=True)
         if p.returncode == 0 and p.stdout.strip():
             return name
+    # Windows 默认安装路径
+    for loc in (r"C:\Program Files\rizin\bin\rizin.exe",
+                r"C:\Program Files (x86)\rizin\bin\rizin.exe",
+                r"C:\Program Files\radare2\bin\radare2.exe"):
+        if os.path.exists(loc):
+            return loc
     return None
 
 
@@ -47,7 +53,7 @@ def r2_cmd(binary, cmds, timeout=30):
     if not tool:
         return ""
     full = ";".join(cmds)
-    out, _, _ = run_cmd(f'{tool} -q -e scr.color=false -c "{full}" "{binary}"', timeout=timeout)
+    out, _, _ = run_cmd(f'"{tool}" -q -e scr.color=false -c "{full}" "{binary}"', timeout=timeout)
     return out
 
 
@@ -63,38 +69,43 @@ def r2_functions(binary):
 
 
 def r2_decompile_main(binary):
-    """反编译 main 函数（需要 r2dec 插件，跑不了就算了）"""
-    return r2_cmd(binary, ["aaa", "s main", "pdg"], timeout=30)
+    """反编译 main（rizin 用 pdc 伪代码）"""
+    return r2_cmd(binary, ["aaa", "s main", "pdc"], timeout=30)
 
 
 def r2_disasm_interest(binary):
     """反汇编 main + 附近 5 个自定义函数、搜 flag/cmp 分支"""
     cmds = [
         "aaa",
-        "s main", "pdi 60",
-        "s entry0", "pdi 20",
-        "/ flag{",  # 搜汇编里的 flag 字符串引用
+        "s main", "pdf",
+        "s entry0", "pd 20",
+        "/ flag{",
     ]
     return r2_cmd(binary, cmds, timeout=30)
 
 
 def r2_rodata(binary):
-    """只读数据段里找可疑常量"""
+    """只读数据段 + 字符串交叉引用"""
     cmds = [
-        "s .rodata", "p8 128",
-        "/c flag", "/c ctf", "/c correct", "/c wrong",
+        "iS",           # 段列表
+        "iz~flag",      # 搜 flag 相关字符串
+        "iz~ctf",
+        "iz~password",
+        "iz~secret",
     ]
     return r2_cmd(binary, cmds, timeout=20)
 
 
 def r2_xrefs(binary):
-    """看看哪些指令引用了 flag-related 字符串"""
+    """交叉引用分析——先搜字符串再查谁引用了它们"""
+    # rizin: iz 列出所有字符串，axt 查引用
     cmds = [
         "aaa",
-        "axt @@ str.*flag*",
-        "axt @@ str.*ctf*",
-        "axt @@ str.*correct*",
-        "axt @@ str.*password*",
+        "iz~flag",
+        "iz~ctf",
+        "iz~correct",
+        "iz~wrong",
+        "iz~password",
     ]
     return r2_cmd(binary, cmds, timeout=20)
 
