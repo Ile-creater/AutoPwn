@@ -1,7 +1,7 @@
-import asyncio, json, os, shutil, sys, uuid
+import asyncio, json, os, shutil, sys, uuid, base64
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -45,10 +45,12 @@ _submit_dir.mkdir(exist_ok=True)
 
 
 class SubmitReq(BaseModel):
-    title: str = "Web Challenge"
-    url: str
-    hints: str = ""
+    title: str = ""
+    type: str = "web"        # web / misc / bin / pwn
+    url: str = ""             # web 专用
+    hints: str = ""           # 提示
     difficulty: int = 2
+    content: str = ""         # 题目内容 (文本/base64 附件)
 
 class SolveReq(BaseModel):
     use_docker: bool = False
@@ -93,45 +95,94 @@ def _check_tool(name):
 
 
 @app.get("/api/tools")
-@app.get("/api/tools")
 async def tools_status():
     return [{"name": n, "ok": _check_tool(n), "install": TOOL_LINKS.get(n, "")}
             for n in ("rizin", "ollama", "docker", "pwntools", "binwalk", "exiftool")]
 
+TYPE_PREFIX = {"web": "web", "misc": "misc", "bin": "bin", "pwn": "pwn"}
+
 @app.post("/api/submit")
 async def submit_challenge(req: SubmitReq):
-    """提交一道 Web 题到池子里"""
-    cid = f"web-{uuid.uuid4().hex[:6]}"
+    ctype = req.type if req.type in TYPE_PREFIX else "misc"
+    prefix = TYPE_PREFIX[ctype]
+    cid = f"{prefix}-{uuid.uuid4().hex[:6]}"
+    title = req.title.strip() or f"{ctype.upper()} Challenge"
 
-    # 把题目落盘
     folder = _submit_dir / cid
     folder.mkdir(exist_ok=True)
-    (folder / "challenge.json").write_text(json.dumps({
-        "id": cid, "title": req.title, "type": "web",
-        "difficulty": req.difficulty, "url": req.url, "hints": req.hints,
-    }, ensure_ascii=False), encoding="utf-8")
-    (folder / "challenge.txt").write_text(f"{req.url}\n---\n{req.hints}", encoding="utf-8")
 
-    chall = {
-        "id": cid, "title": req.title, "type": "web",
-        "difficulty": req.difficulty, "status": "pending",
-        "folder": str(folder), "url": req.url, "hints": req.hints,
-    }
-    # 去重
-    for i, c in enumerate(_saved_chals):
-        if c.get("url") == req.url:
-            _saved_chals[i] = chall
-            break
+    # 题目内容
+    chal_text = req.content.strip() if req.content.strip() else ""
+    if ctype == "web" and req.url.strip():
+        chal_text = f"{req.url.strip()}\n---\n{req.hints.strip()}" if req.hints.strip() else req.url.strip()
+
+    # 保存
+    meta = {"id": cid, "title": title, "type": ctype, "difficulty": req.difficulty,
+            "url": req.url.strip(), "hints": req.hints.strip()}
+    (folder / "challenge.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+    (folder / "challenge.txt").write_text(chal_text, encoding="utf-8")
+
+    chall = {**meta, "status": "pending", "folder": str(folder)}
+    # 去重(URL) / 追加(附件题)
+    if ctype == "web" and req.url.strip():
+        for i, c in enumerate(_saved_chals):
+            if c.get("url") == req.url.strip():
+                _saved_chals[i] = chall; break
+        else:
+            _saved_chals.append(chall)
     else:
         _saved_chals.append(chall)
 
-    await push_log("sys", f"收到新题: {req.title} ({cid}) -> {req.url}")
+    await push_log("sys", f"收到新题: {title} ({cid}) [{ctype}]")
     await _broadcast({"type": "new_challenge", "challenge": {
-        "id": cid, "title": req.title, "type": "web",
+        "id": cid, "title": title, "type": ctype,
         "difficulty": req.difficulty, "status": "pending",
     }})
+    return {"ok": True, "id": cid, "type": ctype}
 
-    return {"ok": True, "id": cid}
+
+@app.post("/api/submit/file")
+async def submit_file(
+    title: str = Form(default=""),
+    type: str = Form(default="misc"),
+    hints: str = Form(default=""),
+    difficulty: int = Form(default=2),
+    file: UploadFile | None = File(default=None),
+):
+    ctype = type if type in TYPE_PREFIX else "misc"
+    prefix = TYPE_PREFIX[ctype]
+    cid = f"{prefix}-{uuid.uuid4().hex[:6]}"
+    ftitle = title.strip() or f"{ctype.upper()} Challenge"
+
+    folder = _submit_dir / cid
+    folder.mkdir(exist_ok=True)
+
+    # 文件存到题目目录
+    if file and file.filename:
+        fname = file.filename.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]  # 防路径穿越
+        raw = await file.read()
+        (folder / fname).write_bytes(raw)
+        # 也存一份 base64 到 challenge.txt，方便 agent 直接解码
+        b64 = base64.b64encode(raw).decode()
+        (folder / "challenge.txt").write_text(b64, encoding="utf-8")
+    elif hints.strip():
+        (folder / "challenge.txt").write_text(hints.strip(), encoding="utf-8")
+    else:
+        (folder / "challenge.txt").write_text("", encoding="utf-8")
+
+    meta = {"id": cid, "title": ftitle, "type": ctype, "difficulty": difficulty,
+            "hints": hints.strip(), "has_file": bool(file and file.filename)}
+    (folder / "challenge.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+
+    chall = {**meta, "status": "pending", "folder": str(folder)}
+    _saved_chals.append(chall)
+
+    await push_log("sys", f"收到新题: {ftitle} ({cid}) [{ctype}] +文件")
+    await _broadcast({"type": "new_challenge", "challenge": {
+        "id": cid, "title": ftitle, "type": ctype,
+        "difficulty": difficulty, "status": "pending",
+    }})
+    return {"ok": True, "id": cid, "type": ctype}
 
 
 @app.post("/api/solve")
