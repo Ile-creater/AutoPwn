@@ -14,11 +14,12 @@ AGENT_MAP = {
     "web":    "web_agent.py",
     "bin":    "bin_agent.py",
     "misc":   "misc_agent.py",
-    "ai":     "crypto_agent.py",
+    "ai":     "ai_agent.py",
+    "pwn":    "bin_agent.py",
 }
 
 # 哪些类型需要网络
-NEEDS_NET = {"web"}
+NEEDS_NET = {"web", "ai"}
 
 
 def _docker_exists():

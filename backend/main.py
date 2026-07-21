@@ -99,7 +99,7 @@ async def tools_status():
     return [{"name": n, "ok": _check_tool(n), "install": TOOL_LINKS.get(n, "")}
             for n in ("rizin", "ollama", "docker", "pwntools", "binwalk", "exiftool")]
 
-TYPE_PREFIX = {"web": "web", "misc": "misc", "bin": "bin", "pwn": "pwn"}
+TYPE_PREFIX = {"web": "web", "misc": "misc", "bin": "bin", "pwn": "pwn", "ai": "ai"}
 
 @app.post("/api/submit")
 async def submit_challenge(req: SubmitReq):

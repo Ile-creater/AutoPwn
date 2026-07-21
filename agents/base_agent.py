@@ -1,12 +1,24 @@
 import os, base64, re, json
 from pathlib import Path
 
+# --- SWE-agent 风格：工具注册表 ---
+# 每个 agent 启动时把自己的可用工具注册到这里，
+# LLM 推理时参考这个表决定用什么工具
+TOOL_REGISTRY: dict[str, dict] = {}
+
+
+def register_tool(name, desc, category, run_fn):
+    TOOL_REGISTRY[name] = {"desc": desc, "category": category, "run": run_fn}
+    return run_fn
+
 
 class BaseAgent:
     def __init__(self, workspace="."):
         self.ws = Path(workspace)
         self.ws.mkdir(parents=True, exist_ok=True)
-        self._llm_ok = None  # None=没测过, True=通, False=不通
+        self._llm_ok = None
+        self.phase = "init"           # explore/scan/solve/exec/verify
+        self.history: list[str] = []  # 每步做了什么
 
     def read_chal(self):
         f = os.environ.get("CHALLENGE_FILE", "")
@@ -16,7 +28,7 @@ class BaseAgent:
         try:
             import requests
             r = requests.get(url, timeout=timeout, allow_redirects=True,
-                             headers={"User-Agent": "AutoPwn/0.2"})
+                             headers={"User-Agent": "AutoPwn/0.3"})
             return r.status_code, dict(r.headers), r.text
         except Exception as e:
             return None, None, str(e)
@@ -24,7 +36,6 @@ class BaseAgent:
     # ====== Ollama ======
 
     def _llm(self, prompt, system="", timeout=15):
-        """调用本地 Ollama。不通返回 None，自动回退。"""
         if self._llm_ok is False:
             return None
         try:
@@ -47,147 +58,173 @@ class BaseAgent:
             self._llm_ok = False
             return None
 
-    # ====== AI 推理层 (均带硬编码回退) ======
+    # ====== SWE-agent 风格：长输出摘要 ======
 
-    def ai_sniff(self, s):
-        """用 LLM 推理编码类型，不通则降级为正则。返回 [(method, confidence), ...]"""
-        llm_out = self._llm(
-            f"You are a CTF solver. Analyze this text and determine what encoding(s) it might be."
-            f"Consider: base64, hex, base32, base85, rot13, reverse, base58, base62, uuencode,"
-            f"quoted-printable, url-encode, morse, binary, ascii85, z85.\n\n"
-            f"Text to analyze:\n{s[:800]}\n\n"
-            f"Respond with a JSON array: [{{\"method\": \"...\", \"confidence\": 0.0-1.0}}, ...]. "
-            f"Reply with ONLY the JSON array, no other text.",
-            system="You are a cryptography expert. Only reply with JSON arrays.",
-            timeout=20,
+    def _summarize(self, text, max_chars=2000):
+        """工具输出太长→截断+标记，防止炸上下文。SWE-agent 同款做法。"""
+        if len(text) <= max_chars:
+            return text
+        # 保留前 60% 和后 30%，中间截断
+        head = int(max_chars * 0.6)
+        tail = int(max_chars * 0.3)
+        return (
+            text[:head]
+            + f"\n\n... [省略 {len(text) - head - tail} 字符] ...\n\n"
+            + text[-tail:]
         )
 
+    # ====== ctfSolver 风格：多阶段管道 ======
+
+    def run_pipeline(self, phases: list[dict]):
+        """按顺序跑 phases=[{"name":"explore","fn":...}, {"name":"solve","fn":...}]
+        每个阶段抛异常就跳过后续。返回 {"phase": ..., "ok": bool, "output": str}"""
+        for p in phases:
+            name = p.get("name", "?")
+            fn = p.get("fn")
+            self.phase = name
+            try:
+                result = fn()
+                self.history.append(f"[{name}] {result[:200] if result else 'done'}")
+                print(f"  [{name}] ok")
+                if result and "FLAG:" in str(result):
+                    return {"phase": name, "ok": True, "output": str(result), "flag": True}
+            except Exception as e:
+                self.history.append(f"[{name}] FAIL: {e}")
+                print(f"  [{name}] 挂了: {e}")
+                return {"phase": name, "ok": False, "output": str(e), "flag": False}
+        return {"phase": "done", "ok": True, "output": "all phases complete", "flag": False}
+
+    # ====== HexStrike 风格：工具自动发现 ======
+
+    def list_tools(self, category=None):
+        """列出注册表中可用的工具。按 category 过滤。"""
+        if category:
+            return [(n, d) for n, d in TOOL_REGISTRY.items() if d["category"] == category]
+        return list(TOOL_REGISTRY.items())
+
+    def use_tool(self, name, *args, **kwargs):
+        """调注册表中的工具。找不到返回 None。"""
+        t = TOOL_REGISTRY.get(name)
+        if t:
+            return t["run"](*args, **kwargs)
+        return None
+
+    # ====== AI 推理层 ======
+
+    def ai_think(self, context, agent_type="general"):
+        """SWE-agent 风格：给定当前上下文，让 LLM 建议下一步动作和工具。"""
+        tools = self.list_tools()
+        tool_list = "\n".join(f"  - {n}: {d['desc']}" for n, d in tools[:15])
+
+        llm_out = self._llm(
+            f"CTF {agent_type} challenge.\n"
+            f"Available tools:\n{tool_list}\n\n"
+            f"Current state:\n{self._summarize(context)}\n\n"
+            f"Think step by step. Choose ONE action:\n"
+            f"1. What tool to call (or 'none')\n"
+            f"2. What you expect to find\n"
+            f"3. If you found something interesting, what next?\n\n"
+            f"Reply in 2-4 short lines. Be specific.",
+            system="You are a CTF solver agent. Think like a security researcher.",
+            timeout=20,
+        )
+        return llm_out
+
+    def ai_sniff(self, s):
+        llm_out = self._llm(
+            f"Analyze this text, what encoding? Consider: base64, hex, base32, base85, "
+            f"rot13, reverse, base58, base62, uuencode, quoted-printable, url-encode, "
+            f"morse, binary, ascii85, z85.\n\nText:\n{s[:800]}\n\n"
+            f"Return JSON array: [{{\"method\":\"...\",\"confidence\":0.0-1.0}}, ...]. Only JSON.",
+            system="Cryptography expert. Reply with JSON arrays only.",
+            timeout=20,
+        )
         if llm_out:
             try:
                 parsed = json.loads(llm_out)
-                # 格式处理
                 if isinstance(parsed, list):
                     return [(p.get("method", "base64"), p.get("confidence", 0.5)) for p in parsed[:8]]
-            except:
-                pass
-
-        # fallback: 现有硬编码
+            except: pass
         return [(e, 0.7) for e in self._fallback_sniff(s)]
 
     def _fallback_sniff(self, s):
         s = s.strip()
         out = []
-        if re.match(r"^[A-Za-z0-9+/=]+$", s) and len(s) % 4 == 0:
-            out.append("base64")
-        if re.match(r"^[0-9a-fA-F]+$", s) and len(s) % 2 == 0:
-            out.append("hex")
-        if re.match(r"^[A-Z2-7=]+$", s) and len(s) % 8 == 0:
-            out.append("base32")
-        if re.match(r"^[A-Za-z0-9!#$%&()*+,\-./:;<=>?@[\]^_`{|}~]+$", s):
-            out.append("base85")
+        if re.match(r"^[A-Za-z0-9+/=]+$", s) and len(s) % 4 == 0: out.append("base64")
+        if re.match(r"^[0-9a-fA-F]+$", s) and len(s) % 2 == 0: out.append("hex")
+        if re.match(r"^[A-Z2-7=]+$", s) and len(s) % 8 == 0: out.append("base32")
+        if re.match(r"^[A-Za-z0-9!#$%&()*+,\-./:;<=>?@[\]^_`{|}~]+$", s): out.append("base85")
         out.append("reverse")
-        if re.match(r"^[a-zA-Z\s{}_\-]+$", s):
-            out.append("rot13")
+        if re.match(r"^[a-zA-Z\s{}_\-]+$", s): out.append("rot13")
         return out
 
     def sniff(self, s):
-        """兼容旧调用：ai_sniff 的结果去 confidence 保留顺序"""
         return [m for m, _ in self.ai_sniff(s)]
 
     def ai_plan_web(self, url, status_code, html_preview, hints=""):
-        """让 LLM 根据页面内容建议下一步攻击方向。返回字符串建议。"""
         llm_out = self._llm(
-            f"CTF Web challenge. URL: {url}\nHTTP status: {status_code}\n"
-            f"Hints: {hints}\n\n"
-            f"HTML preview (first 1200 chars):\n{html_preview[:1200]}\n\n"
-            f"Analyze what you see. What web vulnerability is likely present? "
-            f"Choose from: SQL injection, XSS, SSTI, LFI/path traversal, "
-            f"command injection, IDOR, file upload, SSRF, XXE, or 'scan more'.\n"
-            f"Respond with ONLY one line: VULN_TYPE: <type> REASON: <short reason>.",
-            system="You are a web security expert. Be concise.",
-            timeout=20,
+            f"Web challenge. URL={url}, HTTP={status_code}, hints={hints}\n"
+            f"HTML ({len(html_preview)}B):\n{self._summarize(html_preview, 1200)}\n\n"
+            f"Vulnerability type? Choose: SQLi, XSS, SSTI, LFI, command-injection, "
+            f"IDOR, file-upload, SSRF, XXE, or 'scan more'.\n"
+            f"Reply: VULN_TYPE: <type> REASON: <short reason>.",
+            system="Web security expert. Be concise.", timeout=20,
         )
-        if llm_out:
-            return llm_out
-        return f"VULN_TYPE: scan more REASON: (LLM offline, scanning all)"
+        return llm_out or "VULN_TYPE: scan more REASON: (offline)"
 
     def ai_analyze_binary(self, strings_sample, file_info):
-        """让 LLM 看 strings 输出，发现可疑线索。"""
         llm_out = self._llm(
-            f"Binary analysis.\nFile info: {file_info}\n\n"
-            f"Interesting strings found (first 1500 chars):\n{strings_sample[:1500]}\n\n"
-            f"Look for: passwords, keys, URLs, flag patterns, suspicious function names, "
-            f"encoded strings. What stands out? Respond with 1-3 bullet points.",
-            system="You are a reverse engineering expert. Be concise.",
-            timeout=20,
+            f"Binary analysis. File: {file_info}\n"
+            f"Strings (first 1500 chars):\n{self._summarize(strings_sample, 1500)}\n\n"
+            f"Look for: passwords, keys, URLs, flag patterns, suspicious functions. "
+            f"1-3 bullet points.",
+            system="Reverse engineering expert. Be concise.", timeout=20,
         )
-        if llm_out:
-            return llm_out
-        return None
+        return llm_out
 
     def ai_plan_attack(self, agent_type, context):
-        """通用攻击规划：给一段描述，让 LLM 建议下几步。"""
         llm_out = self._llm(
-            f"CTF challenge type: {agent_type}\n"
-            f"Context:\n{context[:1500]}\n\n"
-            f"What should we try next? Suggest 1-3 concrete actions. Each on one line, "
-            f"starting with '- '.",
-            system="You are a CTF competition solver. Be practical and specific. Short answers only.",
-            timeout=20,
+            f"CTF {agent_type}. Context:\n{self._summarize(context, 1500)}\n\n"
+            f"Next 1-3 steps? Each on its own line, start with '- '.",
+            system="CTF solver. Practical, specific, short.", timeout=20,
         )
-        if llm_out:
-            return llm_out
-        return None
+        return llm_out
 
     # ====== 解码 ======
 
     def decode(self, s, method):
         s = s.strip()
         try:
-            if method == "base64":
-                return base64.b64decode(s).decode("utf-8", errors="replace")
-            if method == "base32":
-                return base64.b32decode(s).decode("utf-8", errors="replace")
-            if method == "base85":
-                return base64.a85decode(s).decode("utf-8", errors="replace")
-            if method == "hex":
-                return bytes.fromhex(s).decode("utf-8", errors="replace")
-            if method == "reverse":
-                return s[::-1]
+            if method == "base64": return base64.b64decode(s).decode("utf-8", errors="replace")
+            if method == "base32": return base64.b32decode(s).decode("utf-8", errors="replace")
+            if method == "base85": return base64.a85decode(s).decode("utf-8", errors="replace")
+            if method == "hex": return bytes.fromhex(s).decode("utf-8", errors="replace")
+            if method == "reverse": return s[::-1]
             if method == "rot13":
                 r = []
                 for ch in s:
-                    if 'a' <= ch <= 'z':
-                        r.append(chr((ord(ch) - 97 + 13) % 26 + 97))
-                    elif 'A' <= ch <= 'Z':
-                        r.append(chr((ord(ch) - 65 + 13) % 26 + 65))
-                    else:
-                        r.append(ch)
+                    if 'a' <= ch <= 'z': r.append(chr((ord(ch) - 97 + 13) % 26 + 97))
+                    elif 'A' <= ch <= 'Z': r.append(chr((ord(ch) - 65 + 13) % 26 + 65))
+                    else: r.append(ch)
                 return "".join(r)
             if method == "morse":
-                # 简单莫尔斯码
-                morse = {"·-": "A", "-···": "B", "-·-·": "C", "-··": "D", "·": "E",
-                         "··-·": "F", "--·": "G", "····": "H", "··": "I", "·---": "J",
-                         "-·-": "K", "·-··": "L", "--": "M", "-·": "N", "---": "O",
-                         "·--·": "P", "--·-": "Q", "·-·": "R", "···": "S", "-": "T",
-                         "··-": "U", "···-": "V", "·--": "W", "-··-": "X", "-·--": "Y",
-                         "--··": "Z", "-----": "0", "·----": "1", "··---": "2", "···--": "3",
-                         "····-": "4", "·····": "5", "-····": "6", "--···": "7", "---··": "8",
-                         "----·": "9", "/": " "}
+                morse = {"·-": "A","-···": "B","-·-·": "C","-··": "D","·": "E",
+                         "··-·": "F","--·": "G","····": "H","··": "I","·---": "J",
+                         "-·-": "K","·-··": "L","--": "M","-·": "N","---": "O",
+                         "·--·": "P","--·-": "Q","·-·": "R","···": "S","-": "T",
+                         "··-": "U","···-": "V","·--": "W","-··-": "X","-·--": "Y",
+                         "--··": "Z","-----": "0","·----": "1","··---": "2","···--": "3",
+                         "····-": "4","·····": "5","-····": "6","--···": "7","---··": "8",
+                         "----·": "9","/": " "}
                 words = s.strip().split("  ")
-                return " ".join(
-                    "".join(morse.get(c, c) for c in w.split())
-                    for w in words
-                )
-        except:
-            pass
+                return " ".join("".join(morse.get(c, c) for c in w.split()) for w in words)
+        except: pass
         return None
 
     def grep_flag(self, s):
         for pat in (r"flag\{[^}]+\}", r"FLAG\{[^}]+\}", r"ctf\{[^}]+\}", r"CTF\{[^}]+\}"):
             m = re.search(pat, s)
-            if m:
-                return m.group(0)
+            if m: return m.group(0)
         return None
 
     def grep_all_flags(self, s):
