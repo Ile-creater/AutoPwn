@@ -3,6 +3,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -98,6 +99,20 @@ def _check_tool(name):
 async def tools_status():
     return [{"name": n, "ok": _check_tool(n), "install": TOOL_LINKS.get(n, "")}
             for n in ("rizin", "ollama", "docker", "pwntools", "binwalk", "exiftool")]
+
+@app.get("/api/writeup/{cid}")
+async def get_writeup(cid: str):
+    p = BASE_DIR / "workspace" / cid / "writeup.md"
+    if p.exists():
+        return FileResponse(p, media_type="text/markdown", filename=f"writeup_{cid}.md")
+    return {"error": "writeup not found"}
+
+@app.get("/api/log/{cid}")
+async def get_log(cid: str):
+    p = BASE_DIR / "workspace" / cid / "output.log"
+    if p.exists():
+        return FileResponse(p, media_type="text/plain", filename=f"log_{cid}.txt")
+    return {"error": "log not found"}
 
 TYPE_PREFIX = {"web": "web", "misc": "misc", "bin": "bin", "pwn": "pwn", "ai": "ai"}
 

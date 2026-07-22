@@ -1,9 +1,7 @@
-const typeEmoji: any = { crypto: "🔐", web: "🌐", bin: "💻", misc: "🧩", ai: "🤖" };
+const typeEmoji: any = { crypto: "🔐", web: "🌐", bin: "💻", misc: "🧩", ai: "🤖", pwn: "💥" };
 const statusClass: any = {
-  pending: "text-gray-500",
-  running: "text-yellow-400 animate-pulse",
-  solved: "text-green-400",
-  failed: "text-red-500",
+  pending: "text-gray-500", running: "text-yellow-400 animate-pulse",
+  solved: "text-green-400", failed: "text-red-500",
 };
 const statusText: any = { pending: "pending", running: "running", solved: "solved", failed: "failed" };
 
@@ -32,7 +30,17 @@ export default function ChallengeList({ challenges }: { challenges: any[] }) {
                 <span className="text-xs text-gray-600">{"★".repeat(Math.min(c.difficulty || 1, 5))}</span>
                 <span className={`text-xs font-bold ${statusClass[c.status] || "text-gray-500"}`}>{statusText[c.status] || c.status}</span>
                 {c.flag && c.status === "solved" && (
-                  <code className="text-xs bg-green-900/50 text-green-300 px-2 py-0.5 rounded font-mono">{c.flag}</code>
+                  <>
+                    <code className="text-xs bg-green-900/50 text-green-300 px-2 py-0.5 rounded font-mono">{c.flag}</code>
+                    <a
+                      href={`http://localhost:8000/api/writeup/${c.id}`}
+                      target="_blank"
+                      title="下载 Writeup"
+                      className="text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 font-bold transition"
+                    >
+                      📄 writeup
+                    </a>
+                  </>
                 )}
               </div>
             </div>
