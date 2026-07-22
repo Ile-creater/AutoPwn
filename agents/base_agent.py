@@ -17,8 +17,9 @@ class BaseAgent:
         self.ws = Path(workspace)
         self.ws.mkdir(parents=True, exist_ok=True)
         self._llm_ok = None
-        self.phase = "init"           # explore/scan/solve/exec/verify
-        self.history: list[str] = []  # 每步做了什么
+        self.phase = "init"
+        self.history: list[str] = []
+        self._kb_hits: list[dict] = []  # 本次查到的知识库记录
 
     def read_chal(self):
         f = os.environ.get("CHALLENGE_FILE", "")
@@ -32,6 +33,21 @@ class BaseAgent:
             return r.status_code, dict(r.headers), r.text
         except Exception as e:
             return None, None, str(e)
+
+    # ====== 知识库查询 ======
+
+    def kb_lookup(self, chal_id=""):
+        """查知识库：返回匹配的历史记录。agent 启动时调用，优先复用成功经验。"""
+        try:
+            from backend.knowledge import kb_lookup as _lookup
+            cid = chal_id or os.environ.get("CHALLENGE_ID", "")
+            chal = {"folder": str(Path(os.environ.get("CHALLENGE_FILE", "")).parent)}
+            agent_type = os.environ.get("AGENT_TYPE", "crypto")
+            hits = _lookup(chal, agent_type)
+            self._kb_hits = hits
+            return hits
+        except:
+            return []
 
     # ====== Ollama ======
 
