@@ -107,6 +107,13 @@ async def get_writeup(cid: str):
         return FileResponse(p, media_type="text/markdown", filename=f"writeup_{cid}.md")
     return {"error": "writeup not found"}
 
+@app.get("/api/kb/stats")
+async def kb_stats_endpoint():
+    from backend.knowledge import kb_stats
+    return kb_stats()
+        return FileResponse(p, media_type="text/markdown", filename=f"writeup_{cid}.md")
+    return {"error": "writeup not found"}
+
 @app.get("/api/log/{cid}")
 async def get_log(cid: str):
     p = BASE_DIR / "workspace" / cid / "output.log"

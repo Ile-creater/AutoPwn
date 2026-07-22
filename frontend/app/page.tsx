@@ -6,6 +6,7 @@ import AgentPanel from "@/components/AgentPanel";
 import LiveTerminal from "@/components/LiveTerminal";
 import SubmitForm from "@/components/SubmitForm";
 import ToolPanel from "@/components/ToolPanel";
+import KBPanel from "@/components/KBPanel";
 
 export default function Home() {
   const [sock, setSock] = useState<WebSocket | null>(null);
@@ -114,6 +115,7 @@ export default function Home() {
         <div>
           <AgentPanel agents={agents} />
           <div className="mt-4"><ToolPanel tools={tools} /></div>
+          <div className="mt-4"><KBPanel /></div>
         </div>
       </div>
 
