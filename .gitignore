@@ -8,6 +8,9 @@ __pycache__/
 workspace/
 submitted/
 
+# 知识库（本地积累，不提交）
+knowledge/
+
 # Node
 node_modules/
 .next/
