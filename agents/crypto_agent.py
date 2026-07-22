@@ -22,6 +22,29 @@ def main():
     print(raw[:200])
     print()
 
+    # 查知识库——以前遇到过类似的吗？
+    hits = a.kb_lookup()
+    if hits:
+        print(f"知识库命中 {len(hits)} 条，优先试已知方法链...")
+        for h in hits:
+            chain = h.get("chain", [])
+            if chain:
+                print(f"  #{h['id']}: {chain} (相似度 {h.get('score','?')})")
+                # 直接按知识库记录的链依次解码
+                cur = raw
+                for step in chain:
+                    method = step.replace("decode_", "")
+                    r = a.decode(cur, method)
+                    if r:
+                        print(f"    {method} → {r[:80]}...")
+                        f = a.grep_flag(r)
+                        if f:
+                            print(f"FLAG: {f} (via 知识库)")
+                            return
+                        cur = r
+                    else:
+                        break
+
     flag = a.grep_flag(raw)
     if flag:
         print(f"白给！flag 直接在题面里")
