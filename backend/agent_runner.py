@@ -64,6 +64,11 @@ async def run_agent(chal, log, use_docker=False):
 
     # 生成 writeup
     _write_report(chal, flag, log_lines, elapsed, workspace)
+
+    # 记入知识库（成功的才记）
+    if flag:
+        from backend.knowledge import kb_record as _kb_rec
+        _kb_rec(chal, flag, agent_type, log_lines)
     return ok, flag, agent_type
 
 
