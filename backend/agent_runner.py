@@ -2,12 +2,13 @@
 agent_runner — 跑 agent，stdout 实时推前端 + 存本地日志，解完自动写 writeup
 """
 
-import asyncio, os, shutil, subprocess
+import asyncio, os, shutil, subprocess, signal
 from datetime import datetime, timezone
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 IMAGE = "auto-pwn-agent"
+AGENT_TIMEOUT = 120  # 单个 agent 最多跑 2 分钟
 
 AGENT_MAP = {
     "crypto": "crypto_agent.py", "web": "web_agent.py", "bin": "bin_agent.py",
@@ -48,28 +49,29 @@ async def run_agent(chal, log, use_docker=False):
         log_file.write_text("\n".join(log_lines), encoding="utf-8")
         await log(chal["id"], text)
 
+    error = None
     if not use_docker:
-        ok, flag = await _run(chal, log, agent_type, workspace, _capture)
+        ok, flag, error = await _run(chal, log, agent_type, workspace, _capture)
     elif not _docker_exists():
         await log(chal["id"], "docker 没装，退回 subprocess")
-        ok, flag = await _run(chal, log, agent_type, workspace, _capture)
+        ok, flag, error = await _run(chal, log, agent_type, workspace, _capture)
     elif not _image_exists():
         await log(chal["id"], "镜像没构建，退回 subprocess")
-        ok, flag = await _run(chal, log, agent_type, workspace, _capture)
+        ok, flag, error = await _run(chal, log, agent_type, workspace, _capture)
     else:
-        ok, flag = await _run_docker(chal, log, agent_type, workspace, _capture)
+        ok, flag, error = await _run_docker(chal, log, agent_type, workspace, _capture)
 
     t_end = datetime.now(timezone.utc)
     elapsed = (t_end - t_start).total_seconds()
 
-    # 生成 writeup
-    _write_report(chal, flag, log_lines, elapsed, workspace)
+    # 生成 writeup（含错误信息）
+    _write_report(chal, flag, log_lines, elapsed, workspace, error)
 
     # 记入知识库（成功的才记）
     if flag:
         from backend.knowledge import kb_record as _kb_rec
         _kb_rec(chal, flag, agent_type, log_lines)
-    return ok, flag, agent_type
+    return ok, flag, agent_type, error
 
 
 async def _run(chal, log, agent_type, workspace, capture):
@@ -84,19 +86,43 @@ async def _run(chal, log, agent_type, workspace, capture):
         "WORKSPACE": str(workspace),
         "CHALLENGE_URL": chal.get("url", ""), "CHALLENGE_HINTS": chal.get("hints", ""),
     }
-    proc = await asyncio.create_subprocess_exec(
-        sys.executable, str(script),
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
-        env=env, cwd=str(workspace),
-    )
+
+    proc = None
     flag = None
-    async for line in proc.stdout:
-        await capture(line)
-        text = line.decode("utf-8", errors="replace").strip()
-        if "FLAG:" in text:
-            flag = text.split("FLAG:")[-1].strip()
-    await proc.wait()
-    return flag is not None, flag
+    error = None
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable, str(script),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+            env=env, cwd=str(workspace),
+        )
+        try:
+            async for line in asyncio.wait_for(proc.stdout.__aiter__(), timeout=AGENT_TIMEOUT):
+                line = line.decode("utf-8", errors="replace").strip() if isinstance(line, bytes) else str(line)
+                if not line: continue
+                await capture(line.encode("utf-8", errors="replace"))
+                if "FLAG:" in str(line):
+                    flag = str(line).split("FLAG:")[-1].strip()
+        except asyncio.TimeoutError:
+            error = f"超时 {AGENT_TIMEOUT}s，强制 kill"
+            await log(chal["id"], f"[!] {error}")
+            if proc.returncode is None:
+                proc.kill()
+            await capture(f"[!] {error}".encode())
+    except FileNotFoundError:
+        error = f"agent 脚本找不到: {script}"
+        await capture(error.encode())
+    except Exception as e:
+        error = f"subprocess 挂了: {e}"
+        await capture(error.encode())
+    finally:
+        if proc and proc.returncode is None:
+            try:
+                proc.kill()
+                await proc.wait()
+            except: pass
+
+    return (flag is not None, flag, error)
 
 
 async def _run_docker(chal, log, agent_type, workspace, capture):
@@ -114,19 +140,37 @@ async def _run_docker(chal, log, agent_type, workspace, capture):
         IMAGE, "python", container_script,
     ]
 
-    await log(chal["id"], f"[sandbox] network={network}")
-    proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+    proc = None
     flag = None
-    async for line in proc.stdout:
-        await capture(line)
-        text = line.decode("utf-8", errors="replace").strip()
-        if "FLAG:" in text:
-            flag = text.split("FLAG:")[-1].strip()
-    await proc.wait()
-    return flag is not None, flag
+    error = None
+    await log(chal["id"], f"[sandbox] network={network}")
+    try:
+        proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+        try:
+            async for line in asyncio.wait_for(proc.stdout.__aiter__(), timeout=AGENT_TIMEOUT):
+                line = line.decode("utf-8", errors="replace").strip() if isinstance(line, bytes) else str(line)
+                if not line: continue
+                await capture(line.encode("utf-8", errors="replace"))
+                if "FLAG:" in str(line):
+                    flag = str(line).split("FLAG:")[-1].strip()
+        except asyncio.TimeoutError:
+            error = f"docker 超时 {AGENT_TIMEOUT}s"
+            await log(chal["id"], f"[!] {error}")
+            await capture(error.encode())
+    except Exception as e:
+        error = f"docker 挂了: {e}"
+        await capture(error.encode())
+    finally:
+        if proc and proc.returncode is None:
+            try:
+                proc.kill()
+                await proc.wait()
+            except: pass
+
+    return (flag is not None, flag, error)
 
 
-def _write_report(chal, flag, log_lines, elapsed, workspace):
+def _write_report(chal, flag, log_lines, elapsed, workspace, error=None):
     title = chal.get("title", "?")
     cid = chal.get("id", "?")
     ctype = chal.get("type", "?")
@@ -142,7 +186,7 @@ def _write_report(chal, flag, log_lines, elapsed, workspace):
     lines.append(f"| 类型 | {ctype} |")
     lines.append(f"| 难度 | {'★' * diff} |")
     lines.append(f"| 耗时 | {elapsed:.1f}s |")
-    lines.append(f"| 结果 | {'✅ Solved' if flag else '❌ Failed'} |")
+    lines.append(f"| 结果 | {'✅ Solved' if flag else ('❌ Failed' + (f' ({error})' if error else ''))} |")
     if flag:
         lines.append(f"| Flag | `{flag}` |")
     if hints:
