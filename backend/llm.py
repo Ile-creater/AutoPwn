@@ -56,17 +56,29 @@ def llm_provider():
 
 
 def llm_call(prompt, system="", timeout=20, max_tokens=512):
-    """统一 LLM 调用入口。返回文本或 None。"""
+    """统一 LLM 调用入口。一次超时自动重试，两次失败降级。"""
     provider = _detect()
 
-    if provider == "ollama":
-        return _call_ollama(prompt, system, timeout, max_tokens)
-    elif provider == "openai":
-        return _call_openai(prompt, system, timeout, max_tokens)
-    elif provider == "anthropic":
-        return _call_anthropic(prompt, system, timeout, max_tokens)
-    elif provider == "custom":
-        return _call_custom(prompt, system, timeout, max_tokens)
+    call = None
+    if provider == "ollama":      call = _call_ollama
+    elif provider == "openai":    call = _call_openai
+    elif provider == "anthropic": call = _call_anthropic
+    elif provider == "custom":    call = _call_custom
+
+    if not call:
+        return None
+
+    # 第一次尝试
+    for attempt in (1, 2):
+        try:
+            result = call(prompt, system, timeout, max_tokens)
+            if result is not None:
+                return result
+        except:
+            pass
+        if attempt == 1:
+            time.sleep(0.5)  # 短等一下再重试
+
     return None
 
 
