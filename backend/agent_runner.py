@@ -97,12 +97,17 @@ async def _run(chal, log, agent_type, workspace, capture):
             env=env, cwd=str(workspace),
         )
         try:
-            async for line in asyncio.wait_for(proc.stdout.__aiter__(), timeout=AGENT_TIMEOUT):
-                line = line.decode("utf-8", errors="replace").strip() if isinstance(line, bytes) else str(line)
-                if not line: continue
-                await capture(line.encode("utf-8", errors="replace"))
-                if "FLAG:" in str(line):
-                    flag = str(line).split("FLAG:")[-1].strip()
+            # 用 wait_for 包一个读取协程，而不是包 __aiter__
+            async def _read_all():
+                f = None
+                async for raw_line in proc.stdout:
+                    raw_line = raw_line.decode("utf-8", errors="replace").strip() if isinstance(raw_line, bytes) else str(raw_line)
+                    if not raw_line: continue
+                    await capture(raw_line.encode("utf-8", errors="replace"))
+                    if "FLAG:" in raw_line:
+                        f = raw_line.split("FLAG:")[-1].strip()
+                return f
+            flag = await asyncio.wait_for(_read_all(), timeout=AGENT_TIMEOUT)
         except asyncio.TimeoutError:
             error = f"超时 {AGENT_TIMEOUT}s，强制 kill"
             await log(chal["id"], f"[!] {error}")
@@ -147,12 +152,16 @@ async def _run_docker(chal, log, agent_type, workspace, capture):
     try:
         proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
         try:
-            async for line in asyncio.wait_for(proc.stdout.__aiter__(), timeout=AGENT_TIMEOUT):
-                line = line.decode("utf-8", errors="replace").strip() if isinstance(line, bytes) else str(line)
-                if not line: continue
-                await capture(line.encode("utf-8", errors="replace"))
-                if "FLAG:" in str(line):
-                    flag = str(line).split("FLAG:")[-1].strip()
+            async def _read_all():
+                f = None
+                async for raw_line in proc.stdout:
+                    raw_line = raw_line.decode("utf-8", errors="replace").strip() if isinstance(raw_line, bytes) else str(raw_line)
+                    if not raw_line: continue
+                    await capture(raw_line.encode("utf-8", errors="replace"))
+                    if "FLAG:" in raw_line:
+                        f = raw_line.split("FLAG:")[-1].strip()
+                return f
+            flag = await asyncio.wait_for(_read_all(), timeout=AGENT_TIMEOUT)
         except asyncio.TimeoutError:
             error = f"docker 超时 {AGENT_TIMEOUT}s"
             await log(chal["id"], f"[!] {error}")
