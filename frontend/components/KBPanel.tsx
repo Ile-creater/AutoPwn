@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+const API = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+
 interface KBStats {
   total: number;
   by_type: Record<string, number>;
@@ -16,7 +18,7 @@ export default function KBPanel() {
   const fetchStats = async () => {
     setLoading(true);
     try {
-      const r = await fetch("http://localhost:8000/api/kb/stats");
+      const r = await fetch(`${API}/api/kb/stats`);
       if (r.ok) setStats(await r.json());
     } catch {}
     setLoading(false);

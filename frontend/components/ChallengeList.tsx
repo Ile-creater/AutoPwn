@@ -1,3 +1,4 @@
+const API = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
 const typeEmoji: any = { crypto: "🔐", web: "🌐", bin: "💻", misc: "🧩", ai: "🤖", pwn: "💥" };
 const statusClass: any = {
   pending: "text-gray-500", running: "text-yellow-400 animate-pulse",
@@ -33,7 +34,7 @@ export default function ChallengeList({ challenges }: { challenges: any[] }) {
                   <>
                     <code className="text-xs bg-green-900/50 text-green-300 px-2 py-0.5 rounded font-mono">{c.flag}</code>
                     <a
-                      href={`http://localhost:8000/api/writeup/${c.id}`}
+                      href={`${API}/api/writeup/${c.id}`}
                       target="_blank"
                       title="下载 Writeup"
                       className="text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 font-bold transition"

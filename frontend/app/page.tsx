@@ -26,7 +26,8 @@ export default function Home() {
 
   // websocket guts
   function hookup() {
-    const ws = new WebSocket("ws://localhost:8000/ws");
+    const api = (process.env.NEXT_PUBLIC_API_BASE || "").replace("http", "ws");
+    const ws = new WebSocket(`${api}/ws`);
     ws.onopen = () => {
       pushLog("[sys] ws connected");
       setOnline(true);

@@ -2,6 +2,8 @@
 
 import { useState, useRef } from "react";
 
+const API = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+
 interface SubEntry {
   id: string;
   type: string;
@@ -87,9 +89,9 @@ export default function SubmitForm() {
         fd.append("hints", hints.trim());
         fd.append("difficulty", String(diff));
         fd.append("file", file);
-        r = await fetch("http://localhost:8000/api/submit/file", { method: "POST", body: fd });
+        r = await fetch(`${API}/api/submit/file`, { method: "POST", body: fd });
       } else {
-        r = await fetch("http://localhost:8000/api/submit", {
+        r = await fetch(`${API}/api/submit`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
