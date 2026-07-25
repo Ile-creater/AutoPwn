@@ -111,6 +111,11 @@ async def get_writeup(cid: str):
 async def kb_stats_endpoint():
     from backend.knowledge import kb_stats
     return kb_stats()
+
+@app.get("/api/llm/status")
+async def llm_status():
+    from backend.llm import llm_available, llm_provider
+    return {"available": llm_available(), "provider": llm_provider()}
     return {"error": "writeup not found"}
 
 @app.get("/api/log/{cid}")
