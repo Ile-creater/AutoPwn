@@ -10,23 +10,16 @@
 
 ## 怎么跑
 
-开两个终端：
+## 怎么跑
 
-```bash
-# 0. 构建 Docker 沙箱（首次）
-cd AutoPwn
-docker build -t auto-pwn-agent -f docker\Dockerfile .
 
-# 终端 1 — 后端
-cd AutoPwn
-pip install -r backend/requirements.txt
-python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
 
-# 终端 2 — 前端
-cd AutoPwn/frontend
-npm install
-npm run dev
-```
+> 或者手动开两个终端：
+> python -m uvicorn backend.main:app --port 8000
+> cd frontend && npm run dev
+> 浏览器 → **http://localhost:3000**，点 **start**。
+> 没装 Docker 也没事，agent_runner 会自动退回子进程模式。
+
 
 > 没装 Docker 也没事，agent_runner 会自动退回子进程模式。
 
