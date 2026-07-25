@@ -30,6 +30,9 @@ export default function ChallengeList({ challenges }: { challenges: any[] }) {
               <div className="flex items-center gap-3">
                 <span className="text-xs text-gray-600">{"★".repeat(Math.min(c.difficulty || 1, 5))}</span>
                 <span className={`text-xs font-bold ${statusClass[c.status] || "text-gray-500"}`}>{statusText[c.status] || c.status}</span>
+                {c.error && c.status === "failed" && (
+                  <span className="text-xs text-red-400/60 max-w-[120px] truncate" title={c.error}>{c.error}</span>
+                )}
                 {c.flag && c.status === "solved" && (
                   <>
                     <code className="text-xs bg-green-900/50 text-green-300 px-2 py-0.5 rounded font-mono">{c.flag}</code>

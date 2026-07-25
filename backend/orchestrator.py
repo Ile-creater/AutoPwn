@@ -87,10 +87,13 @@ class Orchestrator:
                 "id": c["id"], "name": name, "status": "running",
                 "current_challenge": f"⚡ solve: {c['title']}",
             })
-            ok, flag, _ = await run_agent(c, self.log, use_docker=use_docker)
+            ok, flag, _, error = await run_agent(c, self.log, use_docker=use_docker)
             c["status"] = "solved" if ok and flag else "failed"
             c["flag"] = flag
+            c["error"] = error
             await self.push_chal(c)
+            if error:
+                await self.log(c["id"], f"[!] {error}")
 
             await self.push_agent({
                 "id": c["id"], "name": name, "status": "done",
