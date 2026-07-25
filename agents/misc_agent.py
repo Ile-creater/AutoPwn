@@ -66,7 +66,7 @@ def main():
     a = BaseAgent(workspace)
     ws = Path(workspace)
 
-    llm_ok = a._llm("ok", timeout=2)
+    llm_ok = a.llm_ok()
     print(f"MiscAgent @ {workspace} [{'AI' if llm_ok else 'basic'}]")
 
     raw = a.read_chal()

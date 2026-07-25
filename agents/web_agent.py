@@ -49,7 +49,7 @@ def main():
     hints = os.environ.get("CHALLENGE_HINTS", "").strip()
 
     # check LLM status once
-    llm_ok = a._llm("ok", timeout=2)
+    llm_ok = a.llm_ok()
     print(f"[{'AI' if llm_ok else 'basic'}]")
 
     # fallback: 读 challenge.txt 找 URL

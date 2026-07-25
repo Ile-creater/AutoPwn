@@ -115,7 +115,7 @@ def main():
     chal_dir = os.environ.get("CHALLENGE_DIR", "")
     a = BaseAgent(workspace)
 
-    llm_ok = a._llm("ok", timeout=2)
+    llm_ok = a.llm_ok()
     mode = "AI" if llm_ok else "basic"
     r2 = _r2_binary()
     print(f"BinAgent @ {workspace} [{mode}] r2={'yes' if r2 else 'no'}")

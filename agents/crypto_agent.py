@@ -9,8 +9,8 @@ def main():
     a = BaseAgent(workspace)
 
     # 测一下 LLM 在不在
-    llm_test = a._llm("ok", timeout=2)
-    mode = "AI" if llm_test else "fallback"
+    llm_ok = a.llm_ok()
+    mode = "AI" if llm_ok else "fallback"
     print(f"CryptoAgent @ {workspace} [{mode}]")
 
     raw = a.read_chal()
@@ -82,7 +82,7 @@ def main():
             if r is None:
                 continue
 
-            conf_tag = "AI" if llm_test else "rx"
+            conf_tag = "AI" if llm_ok else "rx"
             snippet = r[:80].replace("\n", "\\n")
             print(f"  {method} [{conf_tag} conf={conf:.1f}] → {snippet}...")
 
