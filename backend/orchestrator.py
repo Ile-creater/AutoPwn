@@ -1,9 +1,9 @@
 import asyncio, json
 from pathlib import Path
 
-# ctfSolver 风格：五阶段管道
-PHASES = ["explore", "scan", "solve", "exec", "verify"]
-PHASE_EMOJI = {"explore": "🔎", "scan": "📡", "solve": "🧠", "exec": "⚡", "verify": "✅"}
+# 精简到两阶段：analyze(快扫) → solve(真干活)
+PHASES = ["analyze", "solve"]
+PHASE_EMOJI = {"analyze": "🔎", "solve": "⚡"}
 
 TYPE_LABEL = {
     "crypto": "CryptoAgent", "web": "WebAgent", "bin": "BinAgent",
@@ -51,7 +51,7 @@ class Orchestrator:
                     "folder": str(folder),
                     "url": d.get("url", ""),
                     "hints": d.get("hints", ""),
-                    "phase": "explore",
+                    "phase": "analyze",
                 })
         await self._merge()
         await self.bcast({"type": "scan_result", "challenges": [
@@ -72,43 +72,26 @@ class Orchestrator:
             label = TYPE_LABEL.get(agent_type, "Agent")
             name = f"{label}-{c['id']}"
 
-            # 五阶段管道推送
-            for phase in PHASES:
-                c["phase"] = phase
-                emoji = PHASE_EMOJI.get(phase, "")
+            # analyze 阶段：计算类型、检查工具，1ms 过渡
+            c["phase"] = "analyze"
+            c["status"] = "running"
+            await self.push_chal(c)
+            await self.push_agent({
+                "id": c["id"], "name": name, "status": "running",
+                "current_challenge": f"🔎 analyze: {c['title']}",
+            })
 
-                await self.push_agent({
-                    "id": c["id"], "name": name, "status": "running",
-                    "current_challenge": f"{emoji} {phase}: {c['title']}",
-                })
+            # solve 阶段：真干活
+            c["phase"] = "solve"
+            await self.push_agent({
+                "id": c["id"], "name": name, "status": "running",
+                "current_challenge": f"⚡ solve: {c['title']}",
+            })
+            ok, flag, _ = await run_agent(c, self.log, use_docker=use_docker)
+            c["status"] = "solved" if ok and flag else "failed"
+            c["flag"] = flag
+            await self.push_chal(c)
 
-                if phase == "explore":
-                    c["status"] = "running"
-                    await self.push_chal(c)
-
-                elif phase == "solve":
-                    # 真正的解题发生在 solve 阶段
-                    ok, flag, _ = await run_agent(c, self.log, use_docker=use_docker)
-                    c["status"] = "solved" if ok and flag else "failed"
-                    c["flag"] = flag
-                    await self.push_chal(c)
-                    # 如果解出来了，跳过后面两阶段
-                    if ok and flag:
-                        break
-
-                elif phase == "verify":
-                    # 验证阶段：对解出来的 flag 做一次最终检查
-                    if c.get("flag") and agent_type in ("crypto", "misc"):
-                        # 非网络题重新跑一次确认
-                        ok2, flag2, _ = await run_agent(c, self.log, use_docker=use_docker)
-                        if ok2 and flag2 == c["flag"]:
-                            await self.log(c["id"], "[verify] flag 确认一致 ✓")
-                        else:
-                            await self.log(c["id"], "[verify] flag 不一致，以第一次为准")
-                    elif c.get("flag"):
-                        await self.log(c["id"], "[verify] skip (网络题不重跑)")
-
-            # 完成
             await self.push_agent({
                 "id": c["id"], "name": name, "status": "done",
                 "current_challenge": None,
