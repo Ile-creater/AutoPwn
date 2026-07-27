@@ -6,7 +6,7 @@ const statusClass: any = {
 };
 const statusText: any = { pending: "pending", running: "running", solved: "solved", failed: "failed" };
 
-export default function ChallengeList({ challenges }: { challenges: any[] }) {
+export default function ChallengeList({ challenges, onReplayLog }: { challenges: any[]; onReplayLog?: (cid: string) => void }) {
   const n = challenges.filter((c: any) => c.status === "solved").length;
 
   return (
@@ -36,14 +36,16 @@ export default function ChallengeList({ challenges }: { challenges: any[] }) {
                 {c.flag && c.status === "solved" && (
                   <>
                     <code className="text-xs bg-green-900/50 text-green-300 px-2 py-0.5 rounded font-mono">{c.flag}</code>
+                    <button
+                      onClick={() => onReplayLog?.(c.id)}
+                      className="text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 font-bold transition"
+                    >▶ replay</button>
                     <a
                       href={`${API}/api/writeup/${c.id}`}
                       target="_blank"
                       title="下载 Writeup"
                       className="text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 font-bold transition"
-                    >
-                      📄 writeup
-                    </a>
+                    >📄 writeup</a>
                   </>
                 )}
               </div>
