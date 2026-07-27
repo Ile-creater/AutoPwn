@@ -7,6 +7,7 @@ import LiveTerminal from "@/components/LiveTerminal";
 import SubmitForm from "@/components/SubmitForm";
 import ToolPanel from "@/components/ToolPanel";
 import KBPanel from "@/components/KBPanel";
+import StatsPanel from "@/components/StatsPanel";
 
 export default function Home() {
   const [sock, setSock] = useState<WebSocket | null>(null);
@@ -18,6 +19,20 @@ export default function Home() {
   const [useDocker, setUseDocker] = useState(false);
   const [tools, setTools] = useState<any[]>([]);
   const tailRef = useRef<HTMLDivElement>(null);
+
+  const replayLog = async (cid: string) => {
+    const api = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+    pushLog(`[replay] 加载 ${cid} 的日志...`);
+    try {
+      const r = await fetch(`${api}/api/log/${cid}`);
+      if (r.ok) {
+        const text = await r.text();
+        text.split("\n").forEach(l => pushLog(l));
+      } else {
+        pushLog(`[replay] ${cid} 没找到日志`);
+      }
+    } catch { pushLog("[replay] 加载失败"); }
+  };
 
   const pushLog = (s: string) => setLogs((p) => [...p.slice(-200), s]);
 
@@ -111,12 +126,13 @@ export default function Home() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
         <div className="lg:col-span-2">
           <SubmitForm />
-          <div className="mt-4"><ChallengeList challenges={chals} /></div>
+          <div className="mt-4"><ChallengeList challenges={chals} onReplayLog={replayLog} /></div>
         </div>
         <div>
           <AgentPanel agents={agents} />
           <div className="mt-4"><ToolPanel tools={tools} /></div>
           <div className="mt-4"><KBPanel /></div>
+          <div className="mt-4"><StatsPanel chals={chals} /></div>
         </div>
       </div>
 
