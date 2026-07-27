@@ -146,6 +146,18 @@ def main():
     else:
         print("没搞出来，白给了")
 
+    # LLM 推理兜底
+    if a.llm_ok():
+        print("\n--- AI 推理兜底 ---")
+        flag, reasoning = a.ai_solve(raw, "ai", "可用工具: fetch(url) grep_flag(text) 可以构造prompt injection/jailbreak payload攻击目标AI")
+        if flag:
+            print(f"FLAG: {flag}")
+            return
+        if reasoning and len(reasoning) > 20:
+            print(f"AI 推理: {reasoning[:500]}")
+
+        print("没搞出来，白给了")
+
 
 if __name__ == "__main__":
     main()

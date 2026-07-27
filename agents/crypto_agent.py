@@ -108,6 +108,18 @@ def main():
         print(f"FLAG: {f}")
     else:
         print("没搞出来")
+
+    # LLM 推理兜底
+    if a.llm_ok():
+        print("\n--- AI 推理兜底 ---")
+        flag, reasoning = a.ai_solve(raw, "crypto", "可用工具: sniff(检测编码) decode(text,method) grep_flag(text)")
+        if flag:
+            print(f"FLAG: {flag}")
+            return
+        if reasoning and len(reasoning) > 20:
+            print(f"AI 推理: {reasoning[:500]}")
+
+        print("没搞出来")
         print(cur[:500])
 
 

@@ -348,6 +348,24 @@ def main():
             print(f"FLAG: {f}")
             return
 
+    # LLM 推理兜底（Claude/其他强模型）
+    if a.llm_ok():
+        print("--- AI 推理兜底 ---")
+        tools = ""
+        if "bin" in ("crypto", "misc"):
+            tools = "可用工具: sniff(检测编码) decode(text,method) grep_flag(text) fetch(url)"
+        elif "bin" in ("web", "ai"):
+            tools = "可用工具: fetch(url) grep_flag(text) 可上传HTML页面到/u/guest/ 可提交给bot审查"
+        elif "bin" == "bin":
+            tools = "可用工具: strings run_cmd(cmd) rizin 可反编译分析ELF文件"
+
+        flag, reasoning = a.ai_solve(raw, "bin", tools)
+        if flag:
+            print(f"FLAG: {flag}")
+            return
+        if reasoning and len(reasoning) > 20:
+            print(f"AI 推理: {reasoning[:500]}")
+
     print("没搞出来，白给了")
 
 

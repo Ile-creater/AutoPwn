@@ -471,6 +471,18 @@ location.href="/u/admin/dashboard";
         except:
             pass
 
+    # LLM 推理兜底
+    if a.llm_ok():
+        print(f"\n--- AI 推理兜底 ---")
+        flag, reasoning = a.ai_solve(
+            f"URL: {target}\nHints: {hints}\nHTML: {html[:2000] if html else 'N/A'}",
+            "web",
+            "可用工具: fetch(url) grep_flag(text) 可上传HTML页面到/u/guest/ 可提交给bot审查(/bot?url=)"
+        )
+        if flag:
+            print(f"FLAG: {flag}")
+            return
+
 
 if __name__ == "__main__":
     main()

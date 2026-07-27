@@ -74,6 +74,83 @@ class BaseAgent:
         tail = int(max_chars * 0.3)
         return (text[:head] + f"\n\n... [省略 {len(text) - head - tail} 字符] ...\n\n" + text[-tail:])
 
+    # ====== AI 推理循环（真正解题的东西）======
+
+    def ai_solve(self, challenge_text, agent_type="general", tools_info=""):
+        """让 LLM 接管解题。返回 (flag, reasoning_log)。
+        这个方法才是 AutoPwn 的核心——前面的正则匹配只是快捷路径，
+        LLM 推理能覆盖正则完全看不懂的题目。"""
+        from backend.llm import llm_call, llm_provider, llm_available
+
+        if not llm_available():
+            return None, "LLM offline"
+
+        provider = llm_provider()
+
+        context = f"""You are solving a CTF challenge.
+
+Type: {agent_type}
+Challenge content:
+{challenge_text[:3000]}
+
+{tools_info}
+
+Think step by step. What is the likely vulnerability or encoding? What tools should you use?
+Provide a concrete step-by-step plan to find the flag.
+
+最后一行必须是: FLAG: <flag> (如果找到了) 或者 NEXT: <下一步应该尝试什么>"""
+
+        for turn in range(5):
+            system = "你是 CTF 解题专家。先分析题目，再制定攻击方案，最后执行。短而精准。"
+            if provider == "anthropic":
+                system = "You are an expert CTF solver. Analyze the challenge, plan the attack, execute. Be concise and specific."
+
+            resp = llm_call(context, system=system, timeout=60, max_tokens=1024)
+            if not resp:
+                return None, f"LLM no response (turn {turn})"
+
+            print(f"  [{turn+1}/5] AI: {resp[:300]}...")
+
+            # 检测 flag
+            flag = self.grep_flag(resp)
+            if flag:
+                return flag, resp
+
+            # 检测下一步指令
+            if "NEXT:" in resp:
+                next_step = resp.split("NEXT:")[-1].strip()[:500]
+                context += f"\n\nYour plan: {resp}\n\nExecute this step: {next_step}\nWhat did you find? What now?"
+                continue
+
+            # 检测 CODE: 代码块（让 LLM 直接写 Python 执行）
+            import re
+            code_match = re.search(r"```(?:python)?\n(.*?)```", resp, re.DOTALL)
+            if code_match:
+                code = code_match.group(1).strip()
+                print(f"  [执行代码] {code[:100]}...")
+                try:
+                    exec_globals = {"__builtins__": __builtins__, "base64": __import__("base64"),
+                                    "re": __import__("re"), "requests": __import__("requests"),
+                                    "os": __import__("os"), "json": __import__("json")}
+                    import io, sys
+                    old_stdout = sys.stdout
+                    sys.stdout = buf = io.StringIO()
+                    exec(code, exec_globals)
+                    sys.stdout = old_stdout
+                    exec_output = buf.getvalue().strip() or "(无输出)"
+                    flag = self.grep_flag(exec_output)
+                    if flag:
+                        return flag, code
+                except Exception as e:
+                    exec_output = f"ERROR: {e}"
+                context += f"\n\nCode executed. Output:\n{exec_output}\n\nAnalyze the output. What next?"
+                continue
+
+            # 兜底：让 LLM 继续
+            context += f"\n\nYour response: {resp}\n\nContinue analyzing. What did you find? What should we try next?"
+
+        return None, context[-2000:]
+
     # ====== ctfSolver 风格：多阶段管道 ======
 
     def run_pipeline(self, phases: list[dict]):
