@@ -39,6 +39,68 @@ class BaseAgent:
         except Exception as e:
             return None, None, str(e)
 
+    # ====== PentAGI 风格：漏洞搜索 ======
+
+    def search_exploits(self, tech, limit=5):
+        """按技术栈搜索已知漏洞。返回 [(name, url, description), ...]"""
+        results = []
+        try:
+            import requests as req
+            # Sploitus API (免费，无需 key)
+            r = req.get(f"https://sploitus.com/api/search", params={"query": tech, "type": "exploit"},
+                        headers={"User-Agent": "AutoPwn/0.4"}, timeout=10)
+            if r.status_code == 200:
+                data = r.json()
+                exploits = data.get("exploits", [])[:limit]
+                for e in exploits:
+                    results.append((
+                        e.get("title", "?"),
+                        e.get("href", ""),
+                        e.get("description", "")[:200]
+                    ))
+        except:
+            pass
+
+        if not results:
+            # fallback: DuckDuckGo 搜
+            try:
+                import requests as req
+                r = req.get("https://api.duckduckgo.com",
+                            params={"q": f"{tech} exploit cve", "format": "json", "no_html": 1},
+                            timeout=10)
+                if r.status_code == 200:
+                    data = r.json()
+                    for topic in data.get("RelatedTopics", [])[:limit]:
+                        txt = topic.get("Text", "")
+                        url = topic.get("FirstURL", "")
+                        if txt:
+                            results.append((txt[:80], url, ""))
+            except:
+                pass
+
+        return results
+
+    # ====== PentAGI 风格：执行监控 ======
+
+    def new_monitor(self):
+        """返回一个新的执行监控器。检测重复失败，避免死循环。"""
+        class _Monitor:
+            def __init__(s):
+                s.fails = {}
+                s.total = 0
+                s.max = 3
+            def skip(s, cat):
+                return s.fails.get(cat, 0) >= s.max
+            def fail(s, cat):
+                s.fails[cat] = s.fails.get(cat, 0) + 1
+                s.total += 1
+                if s.fails[cat] >= s.max:
+                    print(f"  [!] {cat} 失败 {s.max} 次，跳过")
+                return s.fails[cat] < s.max
+            def ok(s):
+                s.total += 1
+        return _Monitor()
+
     # ====== 知识库查询 ======
 
     def kb_lookup(self, chal_id=""):

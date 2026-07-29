@@ -108,6 +108,70 @@ def main():
         plan = a.ai_plan_web(target, code, html, hints)
         print(f"AI: {plan[:200]}")
 
+    # ====== PentAGI 风格：侦察阶段 ======
+    # 检测 CMS/框架/技术栈，搜对应漏洞
+    print(f"\n--- PentAGI Recon ---")
+    tech_fingerprints = {
+        "WordPress": [r"wp-content", r"wp-includes", r"/wp-admin", r"wordpress"],
+        "Joomla": [r"joomla", r"com_content"],
+        "Drupal": [r"drupal", r"sites/all"],
+        "Laravel": [r"laravel", r"vendor/laravel"],
+        "Django": [r"django", r"csrfmiddlewaretoken", r"admin/"],
+        "Flask": [r"flask", r"werkzeug"],
+        "Express": [r'x-powered-by: express', r"express"],
+        "Spring": [r"spring", r"actuator"],
+        "PHP": [r"\.php", r"PHP", r"phpinfo"],
+        "Apache": [r"apache", r"Apache/"],
+        "Nginx": [r"nginx", r"nginx/"],
+        "Tomcat": [r"tomcat", r"jsessionid"],
+        "jQuery": [r"jquery", r"jQuery"],
+        "React": [r"react", r"/static/js/main."],
+        "Vue": [r"vue", r"v-bind", r"v-if"],
+    }
+    detected = []
+    html_lower = html.lower()
+    for tech, patterns in tech_fingerprints.items():
+        for pat in patterns:
+            if re.search(pat, html_lower) or any(re.search(pat, str(v).lower()) for v in (headers or {}).items()):
+                detected.append(tech)
+                break
+
+    if detected:
+        print(f"  检测到: {', '.join(detected)}")
+
+    # 端口/服务发现
+    parsed = urlparse(target)
+    base = f"{parsed.scheme}://{parsed.netloc}"
+
+    # 搜已知漏洞
+    if detected:
+        print(f"  搜索 {detected[0]} 相关漏洞...")
+        for tech in detected[:3]:
+            exploits = a.search_exploits(tech, limit=3)
+            for name, url, desc in exploits:
+                print(f"  [{tech}] {name}\n    {url}\n    {desc[:150]}")
+
+    if detected and llm_ok:
+        cve_prompt = f"Target has: {', '.join(detected)}. Server: {headers.get('Server', 'unknown') if headers else 'unknown'}. "
+        cve_prompt += f"What are the top 3 most common vulnerabilities for this tech stack? "
+        cve_prompt += "For each, suggest a specific test/payload. Reply in 3 short bullets."
+        cve_insight = a._llm(cve_prompt, system="You are a penetration tester. Be specific about exploits.", timeout=15)
+        if cve_insight:
+            print(f"  漏洞建议:\n{cve_insight[:400]}")
+
+    # 检查 robots.txt
+    try:
+        import requests
+        r = requests.get(f"{base}/robots.txt", timeout=5, headers={"User-Agent": "AutoPwn/0.4"})
+        if r.status_code == 200 and len(r.text) > 5:
+            print(f"  robots.txt: {r.text[:300]}")
+            # 提取 Disallow 路径作为目标
+            for m in re.finditer(r"Disallow:\s*(/\S+)", r.text):
+                path = m.group(1).strip()
+                if path not in COMMON_PATHS:
+                    COMMON_PATHS.insert(0, path)
+    except: pass
+
     # 1a. 响应头
     for k, v in (headers or {}).items():
         f = a.grep_flag(v)
@@ -169,6 +233,9 @@ def main():
             print(f"JS 里搜到: {fpat}")
             print(f"FLAG: {fpat}")
             return
+
+    # ====== PentAGI 风格：执行监控 ======
+    mon = a.new_monitor()
 
     # ====== Phase 2: 目录爆破 ======
     parsed = urlparse(target)

@@ -114,9 +114,18 @@ async def kb_stats_endpoint():
 
 @app.get("/api/llm/status")
 async def llm_status():
-    from backend.llm import llm_available, llm_provider
-    return {"available": llm_available(), "provider": llm_provider()}
-    return {"error": "writeup not found"}
+    from backend.llm import get_config
+    return get_config()
+
+@app.post("/api/llm/config")
+async def llm_set_config(data: dict):
+    from backend.llm import set_config
+    return set_config(
+        provider=data.get("provider", ""),
+        model=data.get("model", ""),
+        api_key=data.get("api_key", ""),
+        base_url=data.get("base_url", ""),
+    )
 
 @app.get("/api/log/{cid}")
 async def get_log(cid: str):

@@ -8,6 +8,7 @@ import SubmitForm from "@/components/SubmitForm";
 import ToolPanel from "@/components/ToolPanel";
 import KBPanel from "@/components/KBPanel";
 import StatsPanel from "@/components/StatsPanel";
+import ModelPicker from "@/components/ModelPicker";
 
 export default function Home() {
   const [sock, setSock] = useState<WebSocket | null>(null);
@@ -108,6 +109,7 @@ export default function Home() {
         <div className="flex items-center gap-3">
           <span className={`inline-block w-2 h-2 rounded-full ${online ? "bg-green-400" : "bg-red-500"}`} />
           <span className="text-xs text-gray-500">{online ? "online" : "offline"}</span>
+          <ModelPicker />
           <label className="flex items-center gap-1 text-xs text-gray-500 cursor-pointer">
             <input type="checkbox" checked={useDocker} onChange={(e) => setUseDocker(e.target.checked)} className="accent-green-500" />
             🐳 sandbox
