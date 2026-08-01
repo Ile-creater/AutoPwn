@@ -1,32 +1,26 @@
-const icons: any = { idle: "💤", running: "🔄", done: "✅" };
-const borderStyle: any = { idle: "border-gray-700", running: "border-yellow-500/50 animate-pulse", done: "border-green-600" };
+const stateIcon: any = { idle: "○", running: "◉", done: "●" };
+const stateColor: any = { idle: "text-gray-300", running: "text-amber-500 animate-pulse", done: "text-emerald-500" };
 
 export default function AgentPanel({ agents }: { agents: any[] }) {
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 h-full">
-      <h2 className="text-lg font-bold text-gray-200 mb-3">
-        🤖 Agents
-        {agents.length > 0 && (
-          <span className="text-xs text-gray-500 ml-2">
-            ({agents.filter((a) => a.status === "running").length} running)
-          </span>
-        )}
-      </h2>
+    <div className="bg-white border border-gray-100 rounded-xl shadow-sm overflow-hidden">
+      <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-50">
+        <h2 className="text-sm font-semibold text-gray-700">
+          Agents
+          {agents.length > 0 && <span className="text-gray-400 font-normal ml-1.5">· {agents.filter((a: any) => a.status === "running").length} active</span>}
+        </h2>
+      </div>
       {agents.length === 0 ? (
-        <p className="text-gray-600 text-sm py-8 text-center">idle...</p>
+        <p className="text-sm text-gray-400 py-8 text-center">idle</p>
       ) : (
-        <div className="space-y-2">
+        <div className="divide-y divide-gray-50">
           {agents.map((a: any) => (
-            <div key={a.id} className={`bg-gray-800/50 border ${borderStyle[a.status] || "border-gray-700"} rounded p-3 transition-all`}>
+            <div key={a.id} className="px-5 py-3 hover:bg-gray-50/50 transition">
               <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-200">{icons[a.status] || "❓"} {a.name}</span>
-                <span className="text-xs text-gray-500">{a.status}</span>
+                <span className="text-sm text-gray-700 font-medium">{a.name}</span>
+                <span className={`text-lg ${stateColor[a.status] || "text-gray-300"}`}>{stateIcon[a.status] || "○"}</span>
               </div>
-              {a.current_challenge && (
-                <p className="text-xs text-gray-500 mt-1.5 truncate">
-                  {a.current_challenge}
-                </p>
-              )}
+              {a.current_challenge && <p className="text-xs text-gray-400 mt-1 truncate">{a.current_challenge}</p>}
             </div>
           ))}
         </div>

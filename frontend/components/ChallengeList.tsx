@@ -1,51 +1,44 @@
 const API = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
-const typeEmoji: any = { crypto: "🔐", web: "🌐", bin: "💻", misc: "🧩", ai: "🤖", pwn: "💥" };
-const statusClass: any = {
-  pending: "text-gray-500", running: "text-yellow-400 animate-pulse",
-  solved: "text-green-400", failed: "text-red-500",
-};
-const statusText: any = { pending: "pending", running: "running", solved: "solved", failed: "failed" };
+const emoji: any = { crypto: "🔐", web: "🌐", bin: "💻", misc: "🧩", pwn: "💥", ai: "🤖" };
+const statusColor: any = { pending: "text-gray-400", running: "text-amber-500", solved: "text-emerald-600", failed: "text-red-500" };
+const statusLabel: any = { pending: "pending", running: "running", solved: "solved", failed: "failed" };
 
 export default function ChallengeList({ challenges, onReplayLog }: { challenges: any[]; onReplayLog?: (cid: string) => void }) {
-  const n = challenges.filter((c: any) => c.status === "solved").length;
+  const solved = challenges.filter((c: any) => c.status === "solved").length;
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="text-lg font-bold text-gray-200">📋 Challenges</h2>
-        <span className="text-xs text-gray-500">{n}/{challenges.length} solved</span>
+    <div className="bg-white border border-gray-100 rounded-xl shadow-sm overflow-hidden">
+      <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-50">
+        <h2 className="text-sm font-semibold text-gray-700">Challenges</h2>
+        <span className="text-xs text-gray-400 font-medium">{solved}/{challenges.length} solved</span>
       </div>
 
       {challenges.length === 0 ? (
-        <p className="text-gray-600 text-sm py-8 text-center">还没扫到题，点 start</p>
+        <p className="text-sm text-gray-400 py-10 text-center">no challenges yet</p>
       ) : (
-        <div className="space-y-2">
+        <div className="divide-y divide-gray-50">
           {challenges.map((c: any) => (
-            <div key={c.id} className="bg-gray-800/50 border border-gray-700/50 rounded p-3 flex items-center justify-between hover:bg-gray-800 transition">
+            <div key={c.id} className="px-5 py-3 flex items-center justify-between hover:bg-gray-50/50 transition">
               <div className="flex items-center gap-3">
-                <span className="text-xs text-gray-500 font-mono">{c.id}</span>
-                <span className="text-sm text-gray-200">{c.title}</span>
-                <span className="text-xs text-gray-500">{typeEmoji[c.type] || "❓"}</span>
+                <span className="text-xs text-gray-300 font-mono">{c.id}</span>
+                <span className="text-sm text-gray-700">{c.title}</span>
+                <span className="text-xs text-gray-400">{emoji[c.type] || "❓"}</span>
               </div>
               <div className="flex items-center gap-3">
-                <span className="text-xs text-gray-600">{"★".repeat(Math.min(c.difficulty || 1, 5))}</span>
-                <span className={`text-xs font-bold ${statusClass[c.status] || "text-gray-500"}`}>{statusText[c.status] || c.status}</span>
+                <span className="text-xs text-gray-300">{"★".repeat(Math.min(c.difficulty || 1, 5))}</span>
+                <span className={`text-xs font-semibold ${statusColor[c.status] || "text-gray-400"}`}>{statusLabel[c.status] || c.status}</span>
                 {c.error && c.status === "failed" && (
-                  <span className="text-xs text-red-400/60 max-w-[120px] truncate" title={c.error}>{c.error}</span>
+                  <span className="text-xs text-red-400/70 max-w-[120px] truncate" title={c.error}>{c.error}</span>
                 )}
                 {c.flag && c.status === "solved" && (
                   <>
-                    <code className="text-xs bg-green-900/50 text-green-300 px-2 py-0.5 rounded font-mono">{c.flag}</code>
-                    <button
-                      onClick={() => onReplayLog?.(c.id)}
-                      className="text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 font-bold transition"
-                    >▶ replay</button>
-                    <a
-                      href={`${API}/api/writeup/${c.id}`}
-                      target="_blank"
-                      title="下载 Writeup"
-                      className="text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 font-bold transition"
-                    >📄 writeup</a>
+                    <code className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-md font-mono">{c.flag}</code>
+                    <button onClick={() => onReplayLog?.(c.id)} className="text-xs px-2 py-1 rounded-md bg-gray-50 hover:bg-gray-100 text-gray-500 font-medium transition">
+                      replay
+                    </button>
+                    <a href={`${API}/api/writeup/${c.id}`} target="_blank" className="text-xs px-2 py-1 rounded-md bg-gray-50 hover:bg-gray-100 text-gray-500 font-medium transition">
+                      writeup
+                    </a>
                   </>
                 )}
               </div>

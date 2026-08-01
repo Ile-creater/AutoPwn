@@ -21,40 +21,32 @@ export default function Home() {
   const [tools, setTools] = useState<any[]>([]);
   const tailRef = useRef<HTMLDivElement>(null);
 
-  const replayLog = async (cid: string) => {
-    const api = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
-    pushLog(`[replay] 加载 ${cid} 的日志...`);
-    try {
-      const r = await fetch(`${api}/api/log/${cid}`);
-      if (r.ok) {
-        const text = await r.text();
-        text.split("\n").forEach(l => pushLog(l));
-      } else {
-        pushLog(`[replay] ${cid} 没找到日志`);
-      }
-    } catch { pushLog("[replay] 加载失败"); }
-  };
-
   const pushLog = (s: string) => setLogs((p) => [...p.slice(-200), s]);
 
-  // scroll to bottom on new log
   useEffect(() => { tailRef.current?.scrollIntoView({ behavior: "smooth" }); }, [logs]);
 
-  // websocket guts
+  const replayLog = async (cid: string) => {
+    const api = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+    pushLog(`[replay] ${cid}`);
+    try {
+      const r = await fetch(`${api}/api/log/${cid}`);
+      if (r.ok) { (await r.text()).split("\n").forEach((l: string) => pushLog(l)); }
+      else pushLog(`[replay] 404`);
+    } catch { pushLog("[replay] fail"); }
+  };
+
   function hookup() {
     const api = (process.env.NEXT_PUBLIC_API_BASE || "").replace("http", "ws");
     const ws = new WebSocket(`${api}/ws`);
     ws.onopen = () => {
-      pushLog("[sys] ws connected");
+      pushLog("[sys] connected");
       setOnline(true);
       ws.send(JSON.stringify({ type: "scan" }));
     };
     ws.onmessage = (e) => {
       const d = JSON.parse(e.data);
-
       if (d.type === "scan_result") {
         setChals(d.challenges || []);
-        pushLog(`[scan] ${d.challenges?.length || 0} 个题`);
       } else if (d.type === "agent_update") {
         setAgents((old) => {
           const hit = old.find((a) => a.id === d.agent.id);
@@ -64,82 +56,87 @@ export default function Home() {
         pushLog(`[${d.agent_name || "?"}] ${d.line}`);
       } else if (d.type === "challenge_update") {
         setChals((old) => old.map((c) => (c.id === d.challenge.id ? d.challenge : c)));
-        if (d.challenge.status === "solved") {
-          pushLog(`[√] ${d.challenge.title} solved! ${d.challenge.flag}`);
-        }
+        if (d.challenge.status === "solved") pushLog(`✓ ${d.challenge.title} → ${d.challenge.flag}`);
       } else if (d.type === "all_done") {
-        pushLog("[sys] 全搞定了");
+        pushLog("[sys] done");
         setBusy(false);
       } else if (d.type === "new_challenge") {
         setChals((old) => [...old, d.challenge]);
-        pushLog(`[sys] 新题: ${d.challenge.title}`);
-      } else if (d.type === "error") {
-        pushLog(`[!] ${d.message}`);
       } else if (d.type === "tools_status") {
         setTools(d.tools || []);
       }
     };
-    ws.onclose = () => {
-      pushLog("[sys] ws 断了，3s 重连...");
-      setOnline(false);
-      setTimeout(hookup, 3000);
-    };
+    ws.onclose = () => { setOnline(false); setTimeout(hookup, 3000); };
     setSock(ws);
   }
 
-  useEffect(() => {
-    hookup();
-    return () => sock?.close();
-  }, []);
+  useEffect(() => { hookup(); return () => sock?.close(); }, []);
 
   const kickoff = () => {
     setBusy(true);
-    pushLog(`[sys] go! docker=${useDocker}`);
     sock?.send(JSON.stringify({ type: "start", use_docker: useDocker }));
   };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      {/* top bar */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-green-400">⚡ AutoPwn</h1>
-          <span className="text-xs text-gray-600">multi-agent ctf solver</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className={`inline-block w-2 h-2 rounded-full ${online ? "bg-green-400" : "bg-red-500"}`} />
-          <span className="text-xs text-gray-500">{online ? "online" : "offline"}</span>
-          <ModelPicker />
-          <label className="flex items-center gap-1 text-xs text-gray-500 cursor-pointer">
-            <input type="checkbox" checked={useDocker} onChange={(e) => setUseDocker(e.target.checked)} className="accent-green-500" />
-            🐳 sandbox
-          </label>
-          <button
-            onClick={kickoff}
-            disabled={!online || busy}
-            className={`px-4 py-2 rounded text-sm font-bold ${busy || !online ? "bg-gray-700 text-gray-500" : "bg-green-600 hover:bg-green-500 text-white"}`}
-          >
-            {busy ? "running..." : "start"}
-          </button>
-        </div>
-      </div>
+    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white">
+      {/* Top bar */}
+      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-gray-100">
+        <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-xl">⚡</span>
+            <div>
+              <h1 className="text-lg font-bold text-gray-900 tracking-tight">AutoPwn</h1>
+              <p className="text-xs text-gray-400">multi-agent ctf solver</p>
+            </div>
+          </div>
 
-      {/* challenges + agents */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
-        <div className="lg:col-span-2">
-          <SubmitForm />
-          <div className="mt-4"><ChallengeList challenges={chals} onReplayLog={replayLog} /></div>
-        </div>
-        <div>
-          <AgentPanel agents={agents} />
-          <div className="mt-4"><ToolPanel tools={tools} /></div>
-          <div className="mt-4"><KBPanel /></div>
-          <div className="mt-4"><StatsPanel chals={chals} /></div>
-        </div>
-      </div>
+          <div className="flex items-center gap-4">
+            <ModelPicker />
 
-      {/* terminal */}
-      <LiveTerminal lines={logs} logEndRef={tailRef} />
+            <div className="flex items-center gap-2">
+              <span className={`inline-block w-2 h-2 rounded-full ${online ? "bg-emerald-500" : "bg-red-400"}`} />
+              <span className="text-xs text-gray-400">{online ? "online" : "offline"}</span>
+            </div>
+
+            <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none">
+              <input type="checkbox" checked={useDocker} onChange={(e) => setUseDocker(e.target.checked)} className="accent-emerald-600" />
+              🐳 sandbox
+            </label>
+
+            <button
+              onClick={kickoff}
+              disabled={!online || busy}
+              className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${
+                busy || !online
+                  ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                  : "bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white shadow-sm shadow-emerald-200"
+              }`}
+            >
+              {busy ? "running..." : "start"}
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Main */}
+      <main className="max-w-7xl mx-auto px-6 py-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          <div className="lg:col-span-2 space-y-5">
+            <SubmitForm />
+            <ChallengeList challenges={chals} onReplayLog={replayLog} />
+          </div>
+          <div className="space-y-5">
+            <AgentPanel agents={agents} />
+            <StatsPanel chals={chals} />
+            <ToolPanel tools={tools} />
+            <KBPanel />
+          </div>
+        </div>
+
+        <div className="mt-5">
+          <LiveTerminal lines={logs} logEndRef={tailRef} />
+        </div>
+      </main>
     </div>
   );
 }
