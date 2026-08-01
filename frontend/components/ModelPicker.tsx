@@ -24,7 +24,7 @@ export default function ModelPicker() {
 
   const load = async () => {
     try {
-      const r = await fetch("http://localhost:8000/api/llm/status");
+      const r = await fetch(`${api}/api/llm/status`);
       if (r.ok) {
         const d = await r.json();
         setCfg(d);
@@ -40,7 +40,7 @@ export default function ModelPicker() {
     setMsg("");
     try {
       const firstModel = cfg.providers[p]?.models?.[0] || "";
-      const r = await fetch("http://localhost:8000/api/llm/config", {
+      const r = await fetch(`${api}/api/llm/config`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ provider: p, model: firstModel, api_key: apiKey }),
@@ -60,7 +60,7 @@ export default function ModelPicker() {
     setModel(m);
     setMsg("");
     try {
-      const r = await fetch("http://localhost:8000/api/llm/config", {
+      const r = await fetch(`${api}/api/llm/config`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ provider: cfg.provider, model: m, api_key: apiKey }),

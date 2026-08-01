@@ -168,12 +168,24 @@ async def submit_challenge(req: SubmitReq):
     else:
         _saved_chals.append(chall)
 
-    await push_log("sys", f"收到新题: {title} ({cid}) [{ctype}]")
+    # 自动评估难度（用户没填时）
+    auto_diff = req.difficulty
+    if auto_diff == 2 and req.hints.strip():
+        try:
+            from backend.llm import llm_call, llm_available
+            if llm_available():
+                prompt = f"CTF challenge. Type: {ctype}. Hints: {req.hints[:300]}\nRate difficulty 1(easiest)-5(hardest). Reply with ONLY a number 1-5."
+                resp = llm_call(prompt, timeout=10, max_tokens=10)
+                if resp and resp.strip().isdigit():
+                    auto_diff = max(1, min(5, int(resp.strip())))
+        except: pass
+
+    await push_log("sys", f"收到新题: {title} ({cid}) [{ctype}] diff={auto_diff}")
     await _broadcast({"type": "new_challenge", "challenge": {
         "id": cid, "title": title, "type": ctype,
-        "difficulty": req.difficulty, "status": "pending",
+        "difficulty": auto_diff, "status": "pending",
     }})
-    return {"ok": True, "id": cid, "type": ctype}
+    return {"ok": True, "id": cid, "type": ctype, "difficulty": auto_diff}
 
 
 @app.post("/api/submit/file")
