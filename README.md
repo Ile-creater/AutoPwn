@@ -1,113 +1,124 @@
 # ⚡ AutoPwn
 
-多 Agent CTF 自动解题平台。扫题目 → 派 agent → 解 flag，全自动。🚩
+多 Agent CTF 自动解题平台 — 扫题、派 agent、解 flag，一站式全自动。
 
 [![Python](https://img.shields.io/badge/python-3.13-blue)](https://www.python.org/)
 [![Next.js](https://img.shields.io/badge/next.js-16-black)](https://nextjs.org/)
-[![status](https://img.shields.io/badge/status-MVP-brightgreen)](https://github.com/Ile-creater/AutoPwn)
+[![Ollama](https://img.shields.io/badge/Ollama-qwen2.5:3b-orange)](https://ollama.com)
+[![status](https://img.shields.io/badge/status-v2.0-emerald)](https://github.com/Ile-creater/AutoPwn)
 
 ---
 
 ## 怎么跑
 
-## 怎么跑
-
-
-
-> 或者手动开两个终端：
-> python -m uvicorn backend.main:app --port 8000
-> cd frontend && npm run dev
-> 浏览器 → **http://localhost:3000**，点 **start**。
-> 没装 Docker 也没事，agent_runner 会自动退回子进程模式。
-
-
-> 没装 Docker 也没事，agent_runner 会自动退回子进程模式。
+```bash
+setup.bat    # 首次：一键装依赖
+start.bat    # 每次：双终端自动启动
+```
 
 浏览器打开 **http://localhost:3000**，点 **start**。
+
+> 或者手动：`python -m uvicorn backend.main:app --port 8000` + `cd frontend && npm run dev`
 
 ---
 
 ## 怎么加新题
 
-在 `challenges/` 下建一个文件夹，放两个文件：
-
 ```
 challenges/
 └── 002_your_challenge/
-    ├── challenge.json   ← {"id":"002_your_challenge","title":"Hex 套娃","type":"crypto","difficulty":2}
-    └── challenge.txt    ← 题目内容（编码后的密文）
+    ├── challenge.json  → {"id":"xxx","title":"xxx","type":"crypto|web|bin|misc|pwn|ai","difficulty":1-5}
+    └── challenge.txt   → 题目内容 / 附件base64 / URL
 ```
 
-| 字段 | 说明 |
-|------|------|
-| `id` | 唯一标识 |
-| `title` | 题目名字 |
-| `type` | crypto / web / bin / misc / ai |
-| `difficulty` | 1~5，数字越小越简单 |
-
-然后点一次 **start**，orchestrator 会自动扫到新题并按难度排。
+或者直接在仪表盘点 **📤 Submit Challenge**，选类型填 URL/附件/提示，提交即入池。
 
 ---
 
 ## 原理
 
 ```
-浏览器 (仪表盘)
-  ↕ WebSocket
-FastAPI (主控)
-  ├─ 扫 challenges/ 目录，按 difficulty 排序
-  ├─ asyncio.gather 全部题一起跑
-  ├─ 3 个 subprocess → stdout 实时推到终端
-  └─ 检测到 FLAG:xxx → 标记 solved
-
-  CryptoAgent         WebAgent            BinAgent
-  (base64/hex/rot13)  (HTML/注释/扫描)   (strings/checksec/objdump)
+仪表盘 ←→ WebSocket ←→ FastAPI (Orchestrator) → asyncio.gather 并行
+                         │
+         ┌───────────────┼───────────────┐
+    CryptoAgent  WebAgent  BinAgent  MiscAgent  AIAgent
+    (编解码)   (Web漏洞  (逆向)    (杂项)   (prompt注入)
+                +PentAGI侦察+XSS Bot)
+                         │
+              llm.py → Ollama / Claude / DeepSeek / Qwen / OpenAI
+              knowledge.py → Jaccard 相似度匹配攻击链
 ```
+
+**解题流程：**
+1. 硬编码正则扫描（0.1s，覆盖常见编码/漏洞）
+2. 知识库匹配（查历史成功攻击链）
+3. Ollama 本地推理（qwen2.5:3b，免费）
+4. 硬编码全失败 → AI 推理循环接管（LLM 规划→执行→看结果→调整，最多5轮）
+
+---
 
 ## 目录结构
 
 ```
 AutoPwn/
-├── agents/              # 解题 agent
-│   ├── base_agent.py    #   嗅探、解码、HTTP 请求公共方法
-│   ├── crypto_agent.py  #   密码/编码类
-│   ├── web_agent.py     #   Web 类：注释挖掘、目录扫描、隐藏字段
-│   ├── bin_agent.py     #   逆向类：pwntools / strings / checksec / ELF分析
-│   └── misc_agent.py    #   杂项类：file/stego/zip/元数据/归档分析
-├── backend/             # FastAPI
-│   ├── main.py          #   WebSocket + 路由
-│   ├── orchestrator.py  #   扫题、排序、派发
-│   └── agent_runner.py  #   Docker 沙箱启动器（没装则退回 subprocess）
-├── docker/              # 沙箱镜像
-│   ├── Dockerfile       #   python:slim + binwalk + pwntools + agent
-│   └── build.bat        #   一键构建
-├── frontend/            # Next.js 仪表盘
-│   └── components/      #   ChallengeList / AgentPanel / LiveTerminal
-├── challenges/          # CTF 题目
-└── workspace/           # agent 临时工作目录
+├── agents/                  # 5 个解题 agent
+│   ├── base_agent.py        #   基类: 编解码/HTTP/LLM调用/知识库/漏洞搜索/执行监控
+│   ├── crypto_agent.py      #   编码类: 链式解码 + kb优先
+│   ├── web_agent.py         #   Web类: SQL注入/XSS/SSTI/LFI/RCE + PentAGI侦查 + XSS Bot
+│   ├── bin_agent.py         #   逆向类: strings/checksec/r2/objdump
+│   ├── misc_agent.py        #   杂项类: binwalk/foremost/stego/zip嵌套
+│   └── ai_agent.py          #   AI安全: prompt injection/jailbreak payload
+├── backend/                 # FastAPI
+│   ├── main.py              #   WebSocket + /api/submit + /api/writeup + /api/kb + /api/llm
+│   ├── orchestrator.py      #   扫题→排序→asyncio.gather 并行派发, 2阶段管道
+│   ├── agent_runner.py      #   子进程/Docker启动器, 120s超时, 自动writeup+KB记录
+│   ├── llm.py               #   多模型适配: Ollama/Claude/DeepSeek/Qwen/OpenAI/自定义
+│   └── knowledge.py         #   CTF知识库: Jaccard匹配, 攻击链特征提取
+├── frontend/                # Next.js 仪表盘 (白底高级风)
+│   └── components/          #   SubmitForm/ChallengeList/AgentPanel/LiveTerminal
+│                            #   ToolPanel/KBPanel/StatsPanel/ModelPicker
+├── challenges/              # CTF 题目 (4道示例)
+├── docker/                  # Docker沙箱: Dockerfile + build.bat
+└── workspace/               # agent 临时工作目录
 ```
 
-## TODO
+---
 
-- [x] Web Agent — requests + HTML 分析，注释/隐藏字段/目录扫描/backup 探测
-- [x] Binary Agent — pwntools + strings + checksec + objdump + ELF 分析
-- [x] 多 Agent 并行 — asyncio.gather 一起跑，题目互不阻塞
-- [x] Docker 沙箱 — 每个 agent 独立容器，crypto/bin 断网，web 放行，512M/1核
-- [x] Misc Agent — 文件分离/stego/zip/归档/元数据/binwalk/foremost
-- [x] 接 Ollama — AI 推理编码类型/攻击方向/二进制分析，模型不在自动降级
+## 功能清单
+
+| 功能 | 说明 |
+|------|------|
+| 🕷️ PentAGI 侦查 | CMS指纹(15种)/robots解析/技术栈检测/Sploitus漏洞搜索 |
+| ⛓️ 知识库 | Jaccard匹配历史攻击链, 解完自动记录 |
+| 🤖 AI 推理循环 | LLM接管: 规划→执行→看结果→调整, 5轮迭代 |
+| 🧠 多模型切换 | 前端下拉框选 Ollama/Claude/DeepSeek/Qwen/OpenAI/自定义 |
+| 📊 统计面板 | SVG饼图(通过率)+柱状图(按类型分布) |
+| ▶️ 解题回放 | solved题点replay重放完整日志 |
+| 📄 自动Writeup | 解完自动生成report.md, 含工具链+耗时+完整过程 |
+| 🐳 Docker沙箱 | 前端可选, crypto/bin断网/web放行, 512M/1核 |
+| 🔧 工具链面板 | 检测 rizin/Ollama/Docker/pwntools/binwalk/exiftool 状态 |
+| ⚡ 并行解题 | asyncio.gather 全部题一起跑, 互不阻塞 |
+| ⏱️ 超时保护 | 120s超时自动kill, 同类攻击失败3次换策略 |
+| 🛡️ 错误恢复 | LLM重试/subprocess异常/脚本缺失, 全部捕获透传 |
+
+---
 
 ## AI 推理
 
-所有 agent 都支持本地 Ollama 推理，**装了就自动用，不装也不影响**。
+内置 LLM 适配层，支持 **6 个 provider 前后端实时切换**：
 
-```bash
-# 安装 Ollama
-winget install Ollama.Ollama
-# 拉个模型（推荐 qwen2.5:3b，够小够快）
-ollama pull qwen2.5:3b
-```
+| Provider | 默认模型 | 费用 |
+|----------|---------|------|
+| Ollama | qwen2.5:3b | 免费（本地） |
+| DeepSeek | deepseek-chat | ¥2/1M tokens |
+| 通义千问 | qwen-turbo | 免费额度 |
+| Claude | claude-opus-4-8 | $5/1M tokens |
+| OpenAI | gpt-4o-mini | $0.15/1M tokens |
+| 自定义 | 任意 OpenAI 兼容 | — |
 
-Agent 启动时会显示 `[AI]` 或 `[basic]` 告知当前模式。LLM 不在时自动降级为硬编码规则。
+Agent 启动时显示 `[AI]` 或 `[basic]`。LLM 不在时自动降级为硬编码规则。
+
+---
 
 ## License
 
