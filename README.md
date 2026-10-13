@@ -1,6 +1,6 @@
 # ⚡ AutoPwn
 
-多 Agent CTF 自动解题平台 — 扫题、派 agent、解 flag，一站式全自动。
+多 Agent CTF 自动解题平台
 
 [![Python](https://img.shields.io/badge/python-3.13-blue)](https://www.python.org/)
 [![Next.js](https://img.shields.io/badge/next.js-16-black)](https://nextjs.org/)
