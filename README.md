@@ -122,4 +122,4 @@ Agent 启动时显示 `[AI]` 或 `[basic]`。LLM 不在时自动降级为硬编�
 
 ## License
 
-MIT — 随便用，出事别找我。
+NO.
